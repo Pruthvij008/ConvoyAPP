@@ -53,7 +53,18 @@ const bad = (m) => { console.log(`  FAIL  ${m}`); process.exitCode = 1; };
   else bad("join token hashing broken");
 
   console.log("\n4. Trip creation + lifecycle");
-  const host = await User.findOne({ authProvider: "device" });
+  // Created rather than looked up. Relying on a user left behind by an
+  // earlier run means the suite only passes on a database that has already
+  // been used — so it could never be run against a fresh deployment, which
+  // is precisely when you most want to run it.
+  const host =
+    (await User.findOne({ authProvider: "device" })) ||
+    (await User.create({
+      name: "Verify Host",
+      authProvider: "device",
+      deviceId: `verify-host-${Date.now()}-${Math.random().toString(36).slice(2, 12)}`,
+      isVerified: true,
+    }));
   const trip = await Trip.create({
     name: "__test Goa Ride",
     hostId: host._id,
