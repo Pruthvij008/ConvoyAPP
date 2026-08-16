@@ -65,6 +65,17 @@ fun ConvoyMapView(
      * A counter rather than a boolean, so asking twice works twice.
      */
     fitRouteKey: Int = 0,
+    /**
+     * Navigation view: tilted, zoomed in, following you and turning with
+     * you — what every driver already recognises from a maps app.
+     *
+     * Deliberately a MODE rather than the default. A tilted, rotating map
+     * is right while you are driving a route and wrong while you are
+     * looking at how the convoy is spread out.
+     */
+    navigationMode: Boolean = false,
+    /** Whose dot the navigation camera follows. */
+    myVehicleId: String? = null,
     onVehicleTapped: (Vehicle) -> Unit = {},
 ) {
     val context = LocalContext.current
@@ -138,7 +149,17 @@ fun ConvoyMapView(
                         view.context, map, vehicles, palette, isDark,
                         destinationLat, destinationLng, destinationLabel, stops,
                         routePoints, colors.route.toArgb(), markerOwners,
+                        navigationMode,
                     )
+
+                    // Navigation owns the camera outright: it re-aims on
+                    // every position update so the view keeps up with the
+                    // car, which is the entire point of the mode.
+                    if (navigationMode) {
+                        followForNavigation(map, vehicles, myVehicleId)
+                        return@getMapAsync
+                    }
+
                     // An explicit "show me the route" always wins.
                     if (appliedFitRoute[0] != fitRouteKey) {
                         appliedFitRoute[0] = fitRouteKey
@@ -173,6 +194,7 @@ fun ConvoyMapView(
                         view.context, map, vehicles, palette, isDark,
                         destinationLat, destinationLng, destinationLabel, stops,
                         routePoints, colors.route.toArgb(), markerOwners,
+                        navigationMode,
                     )
                     // First frame after a style load: position the camera
                     // regardless, since the map has just been rebuilt.
@@ -215,6 +237,7 @@ private fun drawAll(
     routePoints: List<Pair<Double, Double>>,
     routeColor: Int,
     markerOwners: MutableMap<Long, String>,
+    navigationMode: Boolean = false,
 ) {
     map.clear()
     markerOwners.clear()
@@ -231,22 +254,28 @@ private fun drawAll(
         // practical rather than decorative — a single flat line disappears
         // over roads of a similar colour, which is exactly where you most
         // need to see it.
+        // Fatter while navigating. At a driving zoom the line is what you
+        // steer by, and a width that reads fine on an overview is far too
+        // thin to follow at a glance.
+        val casingWidth = if (navigationMode) 15f else 9f
+        val lineWidth = if (navigationMode) 10f else 5.5f
+
         map.addPolyline(
             PolylineOptions()
                 .addAll(line)
                 .color(if (isDark) 0xFF04211D.toInt() else 0xFF0B3B33.toInt())
-                .alpha(0.55f)
-                .width(9f)
+                .alpha(0.6f)
+                .width(casingWidth)
         )
         map.addPolyline(
             PolylineOptions()
                 .addAll(line)
                 .color(routeColor)
-                .alpha(0.95f)
-                .width(5.5f)
+                .alpha(0.97f)
+                .width(lineWidth)
         )
 
-        drawRouteArrows(context, map, routePoints, isDark)
+        drawRouteArrows(context, map, routePoints, navigationMode)
     }
 
     // Destination first, so a vehicle dot always draws on top of it.
@@ -291,14 +320,15 @@ private fun drawRouteArrows(
     context: android.content.Context,
     map: MapLibreMap,
     routePoints: List<Pair<Double, Double>>,
-    isDark: Boolean,
+    navigationMode: Boolean = false,
 ) {
     if (routePoints.size < 8) return
 
     val icons = IconFactory.getInstance(context)
-    // About a dozen arrows whatever the route's length. A 500 km route with
-    // an arrow every few points would be a solid line of chevrons.
-    val step = (routePoints.size / 12).coerceAtLeast(3)
+    // More of them while navigating, because the line fills the screen and
+    // widely spaced arrows leave long stretches with no direction cue.
+    val target = if (navigationMode) 26 else 12
+    val step = (routePoints.size / target).coerceAtLeast(2)
 
     var i = step
     while (i < routePoints.size - 1) {
@@ -310,15 +340,21 @@ private fun drawRouteArrows(
         map.addMarker(
             MarkerOptions()
                 .position(LatLng(lat, lng))
-                .icon(icons.fromBitmap(arrowBitmap(bearing, isDark)))
+                .icon(icons.fromBitmap(arrowBitmap(bearing, navigationMode)))
         )
         i += step
     }
 }
 
-/** A single chevron, rotated to point along the route. */
-private fun arrowBitmap(bearingDeg: Float, isDark: Boolean): Bitmap {
-    val size = 52
+/**
+ * A single chevron, rotated to point along the route.
+ *
+ * Always white and always ON the line, the way navigation apps draw them —
+ * the arrow is a marking painted on the road, not a separate object
+ * floating beside it.
+ */
+private fun arrowBitmap(bearingDeg: Float, navigationMode: Boolean): Bitmap {
+    val size = if (navigationMode) 44 else 34
     val bitmap = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888)
     val canvas = Canvas(bitmap)
     val centre = size / 2f
@@ -328,18 +364,19 @@ private fun arrowBitmap(bearingDeg: Float, isDark: Boolean): Bitmap {
     // the compass bearing — far simpler than computing rotated vertices.
     canvas.rotate(bearingDeg, centre, centre)
 
+    val scale = if (navigationMode) 1.3f else 1f
     val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         style = Paint.Style.STROKE
-        strokeWidth = 5f
+        strokeWidth = 4f * scale
         strokeCap = Paint.Cap.ROUND
         strokeJoin = Paint.Join.ROUND
-        color = if (isDark) 0xFFEAFBF6.toInt() else 0xFFFFFFFF.toInt()
+        color = 0xFFFFFFFF.toInt()
     }
 
     val path = android.graphics.Path().apply {
-        moveTo(centre - 9f, centre + 6f)
-        lineTo(centre, centre - 6f)
-        lineTo(centre + 9f, centre + 6f)
+        moveTo(centre - 6f * scale, centre + 4f * scale)
+        lineTo(centre, centre - 4f * scale)
+        lineTo(centre + 6f * scale, centre + 4f * scale)
     }
     canvas.drawPath(path, paint)
     canvas.restore()
@@ -621,4 +658,52 @@ private fun frameRoute(map: MapLibreMap, routePoints: List<Pair<Double, Double>>
     runCatching {
         map.animateCamera(CameraUpdateFactory.newLatLngBounds(builder.build(), 90), 700)
     }
+}
+
+
+/**
+ * The navigation camera.
+ *
+ * Four things together are what make a map read as "navigation" rather
+ * than "a map that happens to be zoomed in":
+ *
+ *   TILT     — the road ahead occupies most of the screen instead of the
+ *              sky above you and the ground behind you
+ *   BEARING  — the map turns so your direction of travel is always up,
+ *              which removes the mental rotation of reading a north-up map
+ *              while steering
+ *   ZOOM     — close enough that individual turnings are distinguishable
+ *   OFFSET   — you sit low on the screen, because what is behind you does
+ *              not matter and what is ahead does
+ *
+ * Bearing is held at the last known heading when stopped: GPS bearing is
+ * meaningless at a standstill, and letting it through spins the whole map
+ * around a parked car.
+ */
+private fun followForNavigation(
+    map: MapLibreMap,
+    vehicles: List<Vehicle>,
+    myVehicleId: String?,
+) {
+    val me = vehicles.firstOrNull { it.id == myVehicleId } ?: return
+    val position = me.position ?: return
+    val lat = position.lat ?: return
+    val lng = position.lng ?: return
+
+    val moving = (me.lastKnown?.speedKmh ?: 0.0) >= 3.0
+    val bearing = if (moving) me.lastKnown?.heading ?: 0.0 else map.cameraPosition.bearing
+
+    map.animateCamera(
+        CameraUpdateFactory.newCameraPosition(
+            org.maplibre.android.camera.CameraPosition.Builder()
+                .target(LatLng(lat, lng))
+                .zoom(Constants.MAP_NAV_ZOOM)
+                .tilt(Constants.MAP_NAV_TILT)
+                .bearing(bearing)
+                .build()
+        ),
+        // Matched to the position cadence so the camera glides between
+        // fixes instead of snapping and then sitting still.
+        1200,
+    )
 }

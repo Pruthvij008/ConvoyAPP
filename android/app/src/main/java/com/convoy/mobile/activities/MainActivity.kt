@@ -47,6 +47,8 @@ import com.convoy.mobile.customControls.SosButton
 import com.convoy.mobile.customControls.SosOverlay
 import com.convoy.mobile.customControls.DangerButton
 import com.convoy.mobile.customControls.MarkerPickerSheet
+import com.convoy.mobile.customControls.NavigationBar
+import com.convoy.mobile.customControls.NavigationFooter
 import com.convoy.mobile.customControls.NavTarget
 import com.convoy.mobile.customControls.NavigationChoiceSheet
 import com.convoy.mobile.customControls.RouteSheet
@@ -323,6 +325,11 @@ private fun ActiveTripScreen(
     // Bumped to ask the map to frame the whole route.
     var fitRouteKey by remember { mutableStateOf(0) }
 
+    // Navigation view — tilted, following, turning with you. Entered
+    // deliberately from the directions sheet and left deliberately, because
+    // it takes over the whole screen and the camera with it.
+    var navigating by remember { mutableStateOf(false) }
+
     // A critical alert takes over everything else on screen.
     val critical = alertViewModel.criticalAlert
     if (critical != null) {
@@ -440,6 +447,8 @@ private fun ActiveTripScreen(
                 },
             routePoints = (viewModel.myRoute ?: trip.routeCache)?.points.orEmpty(),
             fitRouteKey = fitRouteKey,
+            navigationMode = navigating,
+            myVehicleId = viewModel.myVehicleId,
             // Tapping a car on the map asks the same question as tapping it
             // in the roster — one answer, wherever you tap it.
             onVehicleTapped = { vehicle ->
@@ -458,6 +467,32 @@ private fun ActiveTripScreen(
             },
             modifier = Modifier.fillMaxSize(),
         )
+
+        // While navigating the screen belongs to the road: the roster, the
+        // header pills and the action tiles are gone rather than dimmed.
+        //
+        // Written as if/else, NOT as an early `return@Box`. Returning out of
+        // a composable scope corrupts Compose's group bookkeeping and
+        // crashes the next recomposition — the same trap that already bit
+        // the marker picker.
+        if (navigating) {
+            NavigationBar(
+                destinationLabel = trip.destinationAddress ?: trip.name,
+                distanceText = null,
+                etaText = null,
+                trafficAware = false,
+                modifier = Modifier.align(Alignment.TopCenter),
+                onExit = { navigating = false },
+            )
+            NavigationFooter(
+                distanceText = viewModel.myRoute?.distanceM
+                    ?.let { Formatters.distance(it.toDouble()) },
+                etaText = viewModel.myRoute?.durationS?.let { Formatters.duration(it) },
+                trafficAware = viewModel.myRoute?.isTrafficAware == true,
+                modifier = Modifier.align(Alignment.BottomCenter),
+                onExit = { navigating = false },
+            )
+        } else {
 
         // ── Floating header ─────────────────────────────────────
         Column(
@@ -640,6 +675,8 @@ private fun ActiveTripScreen(
                 },
             )
         }
+        } // end of the not-navigating branch
+
         navTarget?.let { target ->
             // Scrim first, so the sheet reads as modal and a stray tap on
             // the map behind it cannot fire something else.
@@ -668,7 +705,7 @@ private fun ActiveTripScreen(
                     isBusy = viewModel.isRouting,
                     onUseInApp = {
                         viewModel.requestMyRoute(target.lat, target.lng)
-                        fitRouteKey += 1
+                        navigating = true
                         navTarget = null
                     },
                     onUseGoogleMaps = {
@@ -681,7 +718,7 @@ private fun ActiveTripScreen(
                         // and then not being shown the way would be a
                         // strange place to leave someone.
                         viewModel.requestMyRoute(target.lat, target.lng)
-                        fitRouteKey += 1
+                        navigating = true
                         navTarget = null
                     },
                     onDismiss = { navTarget = null },

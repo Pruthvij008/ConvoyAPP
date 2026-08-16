@@ -257,8 +257,12 @@ private fun ChatScreen(viewModel: ChatViewModel, onBack: () -> Unit) {
             // Mic when there is nothing typed, send arrow once there is.
             // One button doing the obvious thing beats two competing for a
             // thumb, and the driver never has to look for the right one.
+            //
+            // if/else rather than an early `return@Row`: returning out of a
+            // composable scope corrupts Compose's group bookkeeping and
+            // crashes the next recomposition.
+            val context = LocalContext.current
             if (viewModel.draft.isBlank()) {
-                val context = LocalContext.current
                 Box(
                     modifier = Modifier
                         .size(48.dp)
@@ -290,24 +294,23 @@ private fun ChatScreen(viewModel: ChatViewModel, onBack: () -> Unit) {
                         fontSize = 19.sp,
                     )
                 }
-                return@Row
-            }
-
-            Box(
-                modifier = Modifier
-                    .size(48.dp)
-                    .background(colors.route, CircleShape)
-                    .clickableOnce { viewModel.sendDraft() },
-                contentAlignment = Alignment.Center,
-            ) {
-                Text(
-                    text = "↑",
-                    color = if (viewModel.draft.isBlank()) colors.dim else {
-                        if (colors.isDark) Color(0xFF032420) else Color.White
-                    },
-                    fontSize = 20.sp,
-                    fontWeight = FontWeight.Bold,
-                )
+            } else {
+                Box(
+                    modifier = Modifier
+                        .size(48.dp)
+                        .background(colors.route, CircleShape)
+                        .clickableOnce { viewModel.sendDraft() },
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Text(
+                        text = "↑",
+                        // Always the "ready" colour: this branch only exists
+                        // when there is something to send.
+                        color = if (colors.isDark) Color(0xFF032420) else Color.White,
+                        fontSize = 20.sp,
+                        fontWeight = FontWeight.Bold,
+                    )
+                }
             }
         }
 

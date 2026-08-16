@@ -69,4 +69,10 @@ object Constants {
     // specific place, and dropping the camera at city zoom would leave the
     // user unsure the pin actually landed on what they picked.
     const val MAP_PLACE_ZOOM = 16.0
+
+    // Navigation view. Close enough that individual turnings are
+    // distinguishable, tilted so the road ahead fills the screen rather
+    // than the sky above and the ground behind.
+    const val MAP_NAV_ZOOM = 17.2
+    const val MAP_NAV_TILT = 55.0
 }
