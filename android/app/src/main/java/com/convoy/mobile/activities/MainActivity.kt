@@ -46,6 +46,7 @@ import com.convoy.mobile.customControls.SosButton
 import com.convoy.mobile.customControls.SosOverlay
 import com.convoy.mobile.customControls.DangerButton
 import com.convoy.mobile.customControls.MarkerPickerSheet
+import com.convoy.mobile.customControls.RouteSheet
 import com.convoy.mobile.customControls.GhostButton
 import com.convoy.mobile.customControls.PrimaryButton
 import com.convoy.mobile.customControls.StatusDot
@@ -60,6 +61,7 @@ import com.convoy.mobile.utility.Constants
 import com.convoy.mobile.utility.Formatters
 import com.convoy.mobile.customControls.ChaseOverlay
 import com.convoy.mobile.utility.Geo
+import com.convoy.mobile.utility.LocationReadiness
 import com.convoy.mobile.utility.Navigation
 import com.convoy.mobile.viewModels.MapViewModel
 import com.convoy.mobile.viewModels.AlertViewModel
@@ -309,6 +311,13 @@ private fun ActiveTripScreen(
     // precisely the staleness Chase Mode exists to avoid.
     var chaseVehicleId by remember { mutableStateOf<String?>(null) }
 
+    // Directions opens this rather than jumping straight to a maps app —
+    // leaving Convoy is a choice the user makes, not a side effect.
+    var routeSheetOpen by remember { mutableStateOf(false) }
+
+    // Bumped to ask the map to frame the whole route.
+    var fitRouteKey by remember { mutableStateOf(0) }
+
     // A critical alert takes over everything else on screen.
     val critical = alertViewModel.criticalAlert
     if (critical != null) {
@@ -408,6 +417,7 @@ private fun ActiveTripScreen(
                     )
                 },
             routePoints = trip.routeCache?.points.orEmpty(),
+            fitRouteKey = fitRouteKey,
             modifier = Modifier.fillMaxSize(),
         )
 
@@ -501,17 +511,48 @@ private fun ActiveTripScreen(
         }
 
         if (viewModel.vehicles.none { it.position != null }) {
+            // Re-read on every refresh, because the answer changes the moment
+            // the user grants permission or flips location back on.
+            val readiness = remember(viewModel.vehicles.size, viewModel.socketConnected) {
+                LocationReadiness.of(context)
+            }
+
             FloatingBar(
                 modifier = Modifier
                     .align(Alignment.Center)
                     .padding(horizontal = 44.dp),
             ) {
-                Text("🛰️", fontSize = 18.sp)
+                Text(readiness.glyph, fontSize = 18.sp)
                 Spacer(Modifier.width(10.dp))
                 Text(
-                    text = "Waiting for a first position",
-                    color = colors.muted,
+                    text = readiness.message,
+                    color = if (readiness == LocationReadiness.WAITING) colors.muted else colors.amber,
                     fontSize = 13.sp,
+                )
+            }
+        }
+
+        if (routeSheetOpen) {
+            val rc = trip.routeCache
+            Box(modifier = Modifier.align(Alignment.BottomCenter)) {
+                RouteSheet(
+                    destinationLabel = trip.destinationAddress ?: trip.name,
+                    distanceText = rc?.distanceM?.let { Formatters.distance(it.toDouble()) },
+                    durationText = rc?.durationS?.let { Formatters.duration(it) },
+                    trafficAware = rc?.isTrafficAware == true,
+                    hasRoute = (rc?.points?.size ?: 0) >= 2,
+                    onShowOnMap = {
+                        fitRouteKey += 1
+                        routeSheetOpen = false
+                    },
+                    onOpenMapsApp = {
+                        val d = trip.destination
+                        if (d?.lat != null && d.lng != null) {
+                            Navigation.navigateTo(context, d.lat!!, d.lng!!, trip.destinationAddress)
+                        }
+                        routeSheetOpen = false
+                    },
+                    onDismiss = { routeSheetOpen = false },
                 )
             }
         }
@@ -555,12 +596,7 @@ private fun ActiveTripScreen(
                 markerViewModel = markerViewModel,
                 paused = paused,
                 modifier = Modifier.align(Alignment.BottomCenter),
-                onNavigateToDestination = {
-                    val d = trip.destination
-                    if (d?.lat != null && d.lng != null) {
-                        Navigation.navigateTo(context, d.lat!!, d.lng!!, trip.destinationAddress)
-                    }
-                },
+                onNavigateToDestination = { routeSheetOpen = true },
                 // Tapping a car does NOT immediately throw you out of the
                 // app. A stopped friend is a fixed point, so a maps app
                 // handles that properly — but a moving one is exactly the

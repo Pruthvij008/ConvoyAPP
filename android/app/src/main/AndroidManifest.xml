@@ -25,7 +25,14 @@
     <!-- Calling a convoy member from an alert. -->
     <uses-permission android:name="android.permission.CALL_PHONE" />
 
-    <uses-feature android:name="android.hardware.location.gps" android:required="true" />
+    <!-- NOT required. Plenty of tablets are wifi-only with no GPS chip, and
+         they are still perfectly useful in a convoy: a passenger watching
+         where everyone is does not need to be tracked themselves. Marking
+         this required also hides the app from those devices on the Play
+         Store entirely. Fused location falls back to wifi/cell positioning
+         when there is no GPS radio to use. -->
+    <uses-feature android:name="android.hardware.location.gps" android:required="false" />
+    <uses-feature android:name="android.hardware.location.network" android:required="false" />
 
     <!-- Android 11 hid every other installed app from us unless we declare
          what we intend to talk to. Without this block `resolveActivity`

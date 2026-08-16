@@ -108,10 +108,48 @@ class LocationTrackingService : LifecycleService() {
             }
 
             fusedClient.getCurrentLocation(Priority.PRIORITY_HIGH_ACCURACY, null)
-                .addOnSuccessListener { location -> location?.let { publish(it) } }
-                .addOnFailureListener { Log.w(TAG, "First fix failed: ${it.message}") }
+                .addOnSuccessListener { location ->
+                    if (location != null) {
+                        publish(location)
+                    } else {
+                        // High accuracy means "use the GPS radio". A wifi-only
+                        // tablet has no such radio, so this returns null and
+                        // waiting longer will never help — the map would sit
+                        // on "waiting for a first position" forever.
+                        Log.w(TAG, "No high-accuracy fix — retrying on wifi/cell")
+                        primeCoarseFix()
+                    }
+                }
+                .addOnFailureListener {
+                    Log.w(TAG, "First fix failed: ${it.message} — retrying coarse")
+                    primeCoarseFix()
+                }
         } catch (e: SecurityException) {
             Log.e(TAG, "No location permission for first fix")
+        }
+    }
+
+    /**
+     * The fallback for devices with no GPS chip.
+     *
+     * Wifi/cell positioning is accurate to a few hundred metres rather than
+     * a few, which is useless for drawing a car on a road but perfectly
+     * adequate for a passenger's tablet showing where the convoy is. A rough
+     * position beats no position.
+     */
+    private fun primeCoarseFix() {
+        try {
+            fusedClient.getCurrentLocation(Priority.PRIORITY_BALANCED_POWER_ACCURACY, null)
+                .addOnSuccessListener { location ->
+                    if (location != null) {
+                        publish(location)
+                    } else {
+                        Log.w(TAG, "No position available from any provider on this device")
+                    }
+                }
+                .addOnFailureListener { Log.w(TAG, "Coarse fix failed: ${it.message}") }
+        } catch (e: SecurityException) {
+            Log.e(TAG, "No location permission for coarse fix")
         }
     }
 

@@ -57,6 +57,13 @@ fun ConvoyMapView(
      * know where you are going.
      */
     routePoints: List<Pair<Double, Double>> = emptyList(),
+    /**
+     * Incremented when the caller wants the camera to frame the WHOLE route
+     * rather than the convoy — what "Show the route" does.
+     *
+     * A counter rather than a boolean, so asking twice works twice.
+     */
+    fitRouteKey: Int = 0,
     onVehicleTapped: (Vehicle) -> Unit = {},
 ) {
     val context = LocalContext.current
@@ -73,6 +80,7 @@ fun ConvoyMapView(
     // reloads every tile, so it must happen when the THEME changes — not on
     // every recomposition, which leaves half the tiles rendered mid-reload.
     val loadedStyleIsDark = remember { arrayOfNulls<Boolean>(1) }
+    val appliedFitRoute = remember { intArrayOf(0) }
 
     // MapView is a plain Android view with its own lifecycle, and it leaks
     // badly if those callbacks are skipped.
@@ -103,6 +111,13 @@ fun ConvoyMapView(
                         destinationLat, destinationLng, destinationLabel, stops,
                         routePoints, colors.route.toArgb(),
                     )
+                    if (appliedFitRoute[0] != fitRouteKey) {
+                        appliedFitRoute[0] = fitRouteKey
+                        if (fitRouteKey > 0 && routePoints.size >= 2) {
+                            frameRoute(map, routePoints)
+                            return@getMapAsync
+                        }
+                    }
                     frameConvoy(map, vehicles, followVehicleId, destinationLat, destinationLng)
                     return@getMapAsync
                 }
@@ -352,5 +367,25 @@ private fun frameConvoy(
             // convoy strip or the bottom sheet.
             map.animateCamera(CameraUpdateFactory.newLatLngBounds(bounds, 140))
         }
+    }
+}
+
+
+/**
+ * Frames the entire route.
+ *
+ * Deliberately separate from [frameConvoy]: that one keeps the cars in
+ * view, which is the right default while driving. This answers a different
+ * question — "what does the whole journey look like?" — and answering it
+ * means zooming out past the convoy.
+ */
+private fun frameRoute(map: MapLibreMap, routePoints: List<Pair<Double, Double>>) {
+    val builder = LatLngBounds.Builder()
+    routePoints.forEach { builder.include(LatLng(it.first, it.second)) }
+
+    // A route that doubles back can produce degenerate bounds, and
+    // LatLngBounds throws rather than returning something usable.
+    runCatching {
+        map.animateCamera(CameraUpdateFactory.newLatLngBounds(builder.build(), 90), 700)
     }
 }
