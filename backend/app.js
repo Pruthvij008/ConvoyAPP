@@ -53,9 +53,16 @@ app.use(
   ["/api/v1/trips/join", "/api/v1/trips/preview"],
   rateLimit({
     windowMs: 10 * 60 * 1000,
-    max: 30,
+    max: 60,
     standardHeaders: true,
     legacyHeaders: false,
+    // Only FAILED attempts count. A successful join is not an attack, and
+    // counting it punishes exactly the wrong people: a convoy of friends
+    // behind one home or office router shares a single public IP, so eight
+    // people joining a trip looked identical to one person brute-forcing
+    // codes. Someone spraying guesses still gets blocked within a minute,
+    // because every one of their attempts fails.
+    skipSuccessfulRequests: true,
     message: {
       status: "fail",
       message: "Too many join attempts. Try again in a few minutes.",

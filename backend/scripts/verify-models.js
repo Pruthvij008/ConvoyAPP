@@ -236,9 +236,20 @@ const bad = (m) => { console.log(`  FAIL  ${m}`); process.exitCode = 1; };
   await wp.save();
 
   console.log("\n12. Cloudinary media");
-  const { tripFolder } = require("../utils/media");
-  if (tripFolder(t2._id) === `convoy/trips/${t2._id}`) ok("trip folder scopes uploads per trip");
-  else bad("trip folder wrong");
+  const { tripFolder, userFolder } = require("../utils/media");
+  const root = require("../config/config").media.folder;
+  // Asserts the BEHAVIOUR — every trip gets its own folder under the app's
+  // configured root — rather than a hardcoded string. The root is a config
+  // value, and a test that pins it fails the moment it is legitimately
+  // changed, which is exactly what happened.
+  if (tripFolder(t2._id) === `${root}/trips/${t2._id}`) ok("trip folder scopes uploads per trip");
+  else bad(`trip folder wrong: ${tripFolder(t2._id)}`);
+
+  if (tripFolder("A") !== tripFolder("B")) ok("two trips cannot share a folder");
+  else bad("trip folders collide");
+
+  if (userFolder("U").startsWith(`${root}/users/`)) ok("user uploads scoped per user");
+  else bad(`user folder wrong: ${userFolder("U")}`);
   const m = await Marker.findOne({ markerKey: "chai" });
   m.media.push({ publicId: `convoy/trips/${t2._id}/abc123`, url: "https://res.cloudinary.com/x/abc123.jpg", resourceType: "image", bytes: 91234 });
   await m.save();
