@@ -49,7 +49,7 @@ services:
       - key: REDIS_URL
         fromService:
           name: convoy-redis
-          type: redis
+          type: keyvalue
           property: connectionString
 
       # ── Everything else has a safe default ──
@@ -62,7 +62,9 @@ services:
       - key: JWT_EXPIRESIN
         value: 90d
 
-  - type: redis
+  # "keyvalue", not "redis" — redis is a deprecated alias and newer
+  # blueprint validation rejects it.
+  - type: keyvalue
     name: convoy-redis
     plan: free
     region: singapore
@@ -71,4 +73,7 @@ services:
     # durable store, so a restart costs at most one ping's worth of state,
     # which the next position update replaces anyway.
     maxmemoryPolicy: allkeys-lru
-    ipAllowList: [] # reachable only from inside Render
+    # Required field for a key-value instance. Empty means NO external
+    # access at all — reachable only from services inside Render, which is
+    # exactly right for something holding live positions.
+    ipAllowList: []
