@@ -81,6 +81,14 @@ fun ConvoyMapView(
     // every recomposition, which leaves half the tiles rendered mid-reload.
     val loadedStyleIsDark = remember { arrayOfNulls<Boolean>(1) }
     val appliedFitRoute = remember { intArrayOf(0) }
+    // Whether the camera has been positioned at least once.
+    //
+    // Auto-framing must happen on first load and then STOP. Re-framing on
+    // every position update fights the user for control of the camera: pan
+    // away to look at the road ahead and it snaps back within seconds, and
+    // any deliberate camera move (like framing the route) is undone by the
+    // next refresh. Follow mode is the one case that should keep tracking.
+    val hasAutoFramed = remember { booleanArrayOf(false) }
 
     // MapView is a plain Android view with its own lifecycle, and it leaks
     // badly if those callbacks are skipped.
@@ -111,14 +119,20 @@ fun ConvoyMapView(
                         destinationLat, destinationLng, destinationLabel, stops,
                         routePoints, colors.route.toArgb(),
                     )
+                    // An explicit "show me the route" always wins.
                     if (appliedFitRoute[0] != fitRouteKey) {
                         appliedFitRoute[0] = fitRouteKey
                         if (fitRouteKey > 0 && routePoints.size >= 2) {
                             frameRoute(map, routePoints)
+                            hasAutoFramed[0] = true
                             return@getMapAsync
                         }
                     }
-                    frameConvoy(map, vehicles, followVehicleId, destinationLat, destinationLng)
+                    if (!hasAutoFramed[0] || followVehicleId != null) {
+                        if (frameConvoy(map, vehicles, followVehicleId, destinationLat, destinationLng)) {
+                            hasAutoFramed[0] = true
+                        }
+                    }
                     return@getMapAsync
                 }
 
@@ -140,7 +154,11 @@ fun ConvoyMapView(
                         destinationLat, destinationLng, destinationLabel, stops,
                         routePoints, colors.route.toArgb(),
                     )
-                    frameConvoy(map, vehicles, followVehicleId, destinationLat, destinationLng)
+                    // First frame after a style load: position the camera
+                    // regardless, since the map has just been rebuilt.
+                    if (frameConvoy(map, vehicles, followVehicleId, destinationLat, destinationLng)) {
+                        hasAutoFramed[0] = true
+                    }
                 }
             }
         },
@@ -154,6 +172,8 @@ data class MapStop(
     val icon: String?,
     val label: String,
     val critical: Boolean = false,
+    /** False for a vehicle's own status, which rides on the dot instead. */
+    val standalone: Boolean = true,
 )
 
 /**
@@ -202,7 +222,10 @@ private fun drawAll(
         )
     }
 
-    stops.forEach { stop ->
+    // Vehicle status markers are drawn as a badge ON the dot (see
+    // drawVehicles), because a pin at the vehicle's exact coordinates gets
+    // painted over by the dot itself. Only PLACE stops belong here.
+    stops.filter { it.standalone }.forEach { stop ->
         map.addMarker(
             MarkerOptions()
                 .position(LatLng(stop.lat, stop.lng))
@@ -267,17 +290,36 @@ private fun drawVehicles(
         val color = Formatters.parseColor(vehicle.color)?.toArgb()
             ?: palette[Math.floorMod(vehicle.id.hashCode(), palette.size)]
 
-        val icon = icons.fromBitmap(vehicleBitmap(color, vehicle.freshness, isDark))
+        // A stopped vehicle carries its reason as a badge on the dot.
+        //
+        // Drawn INTO the vehicle's own bitmap rather than as a separate pin,
+        // because a status marker sits at the vehicle's exact coordinates —
+        // a second marker there would be painted over by the dot and never
+        // seen. The badge sits above and to the right, clear of the dot.
+        val status = vehicle.currentStatus
+        val icon = icons.fromBitmap(
+            vehicleBitmap(color, vehicle.freshness, isDark, status?.icon)
+        )
 
         map.addMarker(
             MarkerOptions()
                 .position(LatLng(lat, lng))
-                .title(vehicle.label)
+                // Tapping the dot answers "why has he stopped?" — the whole
+                // reason the marker exists.
+                .title(
+                    if (status != null) "${vehicle.label} — ${status.label.orEmpty()}"
+                    else vehicle.label
+                )
                 .snippet(
-                    when (vehicle.freshness) {
-                        Freshness.LIVE -> Formatters.speed(vehicle.lastKnown?.speedKmh)
-                        Freshness.STALE -> Formatters.shortAgo(vehicle.lastFixAgeSec)
-                        Freshness.LOST -> "No signal"
+                    when {
+                        status != null && status.waitingForGroup == true ->
+                            "Waiting for the group"
+                        status != null -> "Stopped · go ahead"
+                        vehicle.freshness == Freshness.LIVE ->
+                            Formatters.speed(vehicle.lastKnown?.speedKmh)
+                        vehicle.freshness == Freshness.STALE ->
+                            Formatters.shortAgo(vehicle.lastFixAgeSec)
+                        else -> "No signal"
                     }
                 )
                 .icon(icon)
@@ -286,10 +328,20 @@ private fun drawVehicles(
 }
 
 /** A filled dot with a soft halo, or a hollow ring once the fix is lost. */
-private fun vehicleBitmap(color: Int, freshness: Freshness, isDark: Boolean): Bitmap {
-    val size = 84
+private fun vehicleBitmap(
+    color: Int,
+    freshness: Freshness,
+    isDark: Boolean,
+    statusGlyph: String? = null,
+): Bitmap {
+    // Wider than the dot needs, to leave room for a status badge without
+    // the glyph being clipped at the edge of the bitmap.
+    val size = if (statusGlyph != null) 120 else 84
     val bitmap = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888)
     val canvas = Canvas(bitmap)
+    // The DOT stays centred on the vehicle's real position even when the
+    // bitmap is enlarged for a badge — otherwise adding a badge would shift
+    // the car itself on the map.
     val centre = size / 2f
 
     val paint = Paint(Paint.ANTI_ALIAS_FLAG)
@@ -326,6 +378,32 @@ private fun vehicleBitmap(color: Int, freshness: Freshness, isDark: Boolean): Bi
         }
     }
 
+    // The status badge: a small disc up and to the right of the dot,
+    // carrying the marker's own emoji. Offset rather than centred so the
+    // car's actual position stays readable underneath it.
+    if (statusGlyph != null) {
+        val badgeX = centre + 27f
+        val badgeY = centre - 27f
+
+        paint.style = Paint.Style.FILL
+        paint.alpha = 255
+        paint.color = if (isDark) 0xFF131A19.toInt() else 0xFFFFFFFF.toInt()
+        canvas.drawCircle(badgeX, badgeY, 24f, paint)
+
+        paint.style = Paint.Style.STROKE
+        paint.strokeWidth = 3f
+        paint.color = color
+        canvas.drawCircle(badgeX, badgeY, 24f, paint)
+
+        val glyphPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            textSize = 27f
+            textAlign = Paint.Align.CENTER
+        }
+        // Nudged down by roughly a third of the text size, because drawText
+        // places the BASELINE at y, not the visual centre of the glyph.
+        canvas.drawText(statusGlyph, badgeX, badgeY + 10f, glyphPaint)
+    }
+
     return bitmap
 }
 
@@ -341,14 +419,16 @@ private fun frameConvoy(
     followVehicleId: String?,
     destinationLat: Double? = null,
     destinationLng: Double? = null,
-) {
+): Boolean {
     val points = vehicles.mapNotNull { vehicle ->
         val p = vehicle.position ?: return@mapNotNull null
         val lat = p.lat ?: return@mapNotNull null
         val lng = p.lng ?: return@mapNotNull null
         vehicle.id to LatLng(lat, lng)
     }
-    if (points.isEmpty()) return
+    // Nothing to frame yet. Reported so the caller knows the camera has
+    // NOT been positioned and should try again on the next update.
+    if (points.isEmpty()) return false
 
     val followed = followVehicleId?.let { id -> points.firstOrNull { it.first == id }?.second }
 
@@ -368,6 +448,7 @@ private fun frameConvoy(
             map.animateCamera(CameraUpdateFactory.newLatLngBounds(bounds, 140))
         }
     }
+    return true
 }
 
 

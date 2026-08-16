@@ -17,6 +17,8 @@ import com.convoy.mobile.dataModel.trip.TripPreview
 import com.convoy.mobile.dataModel.trip.VehicleInput
 import com.convoy.mobile.dataModel.vehicle.Vehicle
 import com.convoy.mobile.interfaces.TripInterface
+import com.convoy.mobile.dataModel.trip.MyRouteRequest
+import com.convoy.mobile.dataModel.trip.RouteCache
 import com.convoy.mobile.network.NetworkResult
 import com.convoy.mobile.network.safeApiCall
 import com.convoy.mobile.utility.PrefsManager
@@ -241,6 +243,33 @@ class TripRepository @Inject constructor(
         if (prefs.activeTripId == tripId) {
             prefs.activeTripId = null
             prefs.activeVehicleId = null
+        }
+    }
+
+    /**
+     * Directions from where the caller is now to the trip destination.
+     *
+     * Fetched on demand rather than on every position update: the line
+     * barely changes between pings, and redrawing it every fifteen seconds
+     * would burn a day's routing quota in minutes.
+     */
+    suspend fun getMyRoute(
+        tripId: String,
+        lat: Double,
+        lng: Double,
+    ): NetworkResult<RouteCache> {
+        Log.d(TAG, "Routing from $lat,$lng")
+        return when (val r = safeApiCall { tripApi.getMyRoute(tripId, MyRouteRequest(lat, lng)) }) {
+            is NetworkResult.Success -> {
+                val route = r.data.data.route
+                if (route == null || route.points.size < 2) {
+                    NetworkResult.Error("No route came back for this destination.")
+                } else {
+                    NetworkResult.Success(route)
+                }
+            }
+            is NetworkResult.Error -> r
+            NetworkResult.Loading -> NetworkResult.Loading
         }
     }
 

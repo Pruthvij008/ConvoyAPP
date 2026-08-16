@@ -252,6 +252,16 @@ router.post(
   messageController.markRead
 );
 
+// ── Directions from a member's current position ──────────────────
+// POST rather than GET because it carries the caller's live coordinates,
+// and a position does not belong in a URL that ends up in access logs.
+router.post(
+  "/:tripId/route",
+  loadTrip,
+  requireParticipant,
+  tripController.getMyRoute
+);
+
 // ── Media ────────────────────────────────────────────────────────
 router.post(
   "/:tripId/media/signature",

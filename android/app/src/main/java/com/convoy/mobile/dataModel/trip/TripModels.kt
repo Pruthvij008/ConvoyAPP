@@ -609,3 +609,18 @@ data class RouteCache(
 
     val isTrafficAware: Boolean get() = provider == "google"
 }
+
+/** Body for asking the server to route us from where we are now. */
+data class MyRouteRequest(
+    @SerializedName("lat") val lat: Double,
+    @SerializedName("lng") val lng: Double,
+)
+
+data class MyRouteResponse(
+    @SerializedName("status") val status: String = "",
+    @SerializedName("data") val data: MyRouteData = MyRouteData(),
+)
+
+data class MyRouteData(
+    @SerializedName("route") val route: RouteCache? = null,
+)

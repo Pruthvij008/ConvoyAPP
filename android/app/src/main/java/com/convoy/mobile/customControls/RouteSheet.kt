@@ -44,6 +44,8 @@ fun RouteSheet(
     /** True when the estimate came from Google and accounts for traffic. */
     trafficAware: Boolean,
     hasRoute: Boolean,
+    isLoading: Boolean = false,
+    errorMessage: String? = null,
     onShowOnMap: () -> Unit,
     onOpenMapsApp: () -> Unit,
     onDismiss: () -> Unit,
@@ -79,7 +81,25 @@ fun RouteSheet(
                 fontWeight = FontWeight.SemiBold,
             )
 
-            if (hasRoute) {
+            if (isLoading) {
+                Spacer(Modifier.height(16.dp))
+                Text(
+                    text = "Working out your route…",
+                    color = colors.muted,
+                    fontSize = 13.5.sp,
+                )
+                Spacer(Modifier.height(18.dp))
+                GhostButton(text = "Close", onClick = onDismiss)
+            } else if (errorMessage != null) {
+                Spacer(Modifier.height(14.dp))
+                Text(text = errorMessage, color = colors.amber, fontSize = 13.5.sp)
+                Spacer(Modifier.height(18.dp))
+                // Google Maps still works without a position of our own —
+                // it has its own. So the handoff stays available here.
+                PrimaryButton(text = "Open in Maps instead", onClick = onOpenMapsApp)
+                Spacer(Modifier.height(10.dp))
+                GhostButton(text = "Close", onClick = onDismiss)
+            } else if (hasRoute) {
                 Spacer(Modifier.height(16.dp))
                 Row(horizontalArrangement = Arrangement.spacedBy(28.dp)) {
                     distanceText?.let { Stat(label = "DISTANCE", value = it) }

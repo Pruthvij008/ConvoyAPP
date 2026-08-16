@@ -59,6 +59,53 @@ exports.createTrip = catchAsync(async (req, res, next) => {
   });
 });
 
+// ── Route from where I am now ────────────────────────────────────
+// POST /trips/:tripId/route  { lat, lng }
+//
+// The trip's shared route runs origin → destination and is the journey
+// everyone sees. This is a different question: "get ME from here to the
+// destination", which is what a driver means by Directions and is
+// necessarily per-person, since everyone is somewhere different.
+//
+// One call per request rather than per position update, which is what keeps
+// this affordable — a route that redraws every fifteen seconds would burn a
+// daily quota in minutes for a line that barely changes.
+exports.getMyRoute = catchAsync(async (req, res, next) => {
+  const lat = parseFloat(req.body.lat);
+  const lng = parseFloat(req.body.lng);
+
+  if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
+    return next(new AppError("Your current position is required.", 400));
+  }
+  if (!req.trip.destination?.coordinates?.length) {
+    return next(new AppError("This trip has no destination set.", 409));
+  }
+
+  const [destLng, destLat] = req.trip.destination.coordinates;
+  const route = await routingService.getRoute(
+    { lat, lng },
+    { lat: destLat, lng: destLng }
+  );
+
+  if (!route) {
+    return next(
+      new AppError("Couldn't work out a route just now. Try again shortly.", 503)
+    );
+  }
+
+  res.status(200).json({
+    status: "success",
+    data: {
+      route: {
+        coordinates: route.coordinates,
+        distanceM: route.distanceM,
+        durationS: route.durationS,
+        provider: route.provider,
+      },
+    },
+  });
+});
+
 // ── My trips ─────────────────────────────────────────────────────
 exports.getMyTrips = catchAsync(async (req, res) => {
   const limit = Math.min(parseInt(req.query.limit, 10) || 20, 50);
@@ -348,9 +395,30 @@ exports.updateStatus = catchAsync(async (req, res, next) => {
   // Never allowed to block the start: a convoy with no drawn route still
   // does everything that matters, and a routing provider having a bad
   // minute must not be why six people cannot set off.
-  if (isStarting && req.trip.origin?.coordinates?.length && req.trip.destination?.coordinates?.length) {
+  if (isStarting && req.trip.destination?.coordinates?.length) {
     try {
-      const [originLng, originLat] = req.trip.origin.coordinates;
+      // Nobody types where they are starting from — they are standing in
+      // it. So the origin is the convoy's actual position at the moment it
+      // sets off, and the stored origin (if a host ever set one) only acts
+      // as a fallback.
+      let originCoords = null;
+
+      const startingVehicle = await Vehicle.findOne({
+        tripId: req.trip._id,
+        "lastKnown.point.coordinates": { $exists: true, $ne: [] },
+      }).sort({ "lastKnown.at": -1 });
+
+      if (startingVehicle?.lastKnown?.point?.coordinates?.length === 2) {
+        originCoords = startingVehicle.lastKnown.point.coordinates;
+      } else if (req.trip.origin?.coordinates?.length === 2) {
+        originCoords = req.trip.origin.coordinates;
+      }
+
+      // No position from anyone yet — a route from nowhere is worse than
+      // no route, so it is left for the app to request once it has a fix.
+      if (!originCoords) throw new Error("no starting position yet");
+
+      const [originLng, originLat] = originCoords;
       const [destLng, destLat] = req.trip.destination.coordinates;
 
       const route = await routingService.getRoute(

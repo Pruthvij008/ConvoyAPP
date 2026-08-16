@@ -11,6 +11,7 @@ import com.convoy.mobile.dataModel.trip.TripStatus
 import com.convoy.mobile.dataModel.vehicle.Freshness
 import com.convoy.mobile.dataModel.vehicle.Participant
 import com.convoy.mobile.dataModel.vehicle.Vehicle
+import com.convoy.mobile.dataModel.trip.RouteCache
 import com.convoy.mobile.network.NetworkResult
 import com.convoy.mobile.network.SocketEvent
 import com.convoy.mobile.network.SocketManager
@@ -46,6 +47,17 @@ class MapViewModel @Inject constructor(
     private val livePositions = mutableMapOf<String, LivePosition>()
 
     var socketConnected by mutableStateOf(false)
+        private set
+
+    // ── Directions ──────────────────────────────────────────────
+    // The route from MY position to the destination, fetched when the user
+    // asks for it. Distinct from Trip.routeCache, which is the shared
+    // origin-to-destination line everyone sees.
+    var myRoute by mutableStateOf<RouteCache?>(null)
+        private set
+    var isRouting by mutableStateOf(false)
+        private set
+    var routeError by mutableStateOf<String?>(null)
         private set
 
     var trip by mutableStateOf<Trip?>(null)
@@ -139,6 +151,37 @@ class MapViewModel @Inject constructor(
             }
         }
     }
+
+    /**
+     * Directions from where I am to where the trip is going.
+     *
+     * Needs a position to route FROM, which is why this reports a clear
+     * refusal rather than silently doing nothing when there is no fix yet.
+     */
+    fun requestMyRoute() {
+        val id = trip?.id ?: return
+        val position = vehicles.firstOrNull { it.id == myVehicleId }?.position
+
+        val lat = position?.lat
+        val lng = position?.lng
+        if (lat == null || lng == null) {
+            routeError = "Waiting for your position — directions need to know where you are."
+            return
+        }
+
+        viewModelScope.launch {
+            isRouting = true
+            routeError = null
+            when (val r = repository.getMyRoute(id, lat, lng)) {
+                is NetworkResult.Success -> myRoute = r.data
+                is NetworkResult.Error -> routeError = r.message
+                NetworkResult.Loading -> Unit
+            }
+            isRouting = false
+        }
+    }
+
+    fun clearRouteError() { routeError = null }
 
     private fun applyMovement(payload: org.json.JSONObject) {
         val vehicleId = payload.optString("vehicleId").ifBlank { return }

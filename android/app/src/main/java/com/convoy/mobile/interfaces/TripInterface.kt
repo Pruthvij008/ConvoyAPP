@@ -18,6 +18,8 @@ import com.convoy.mobile.dataModel.trip.TripResponse
 import com.convoy.mobile.dataModel.trip.VehicleInput
 import com.convoy.mobile.dataModel.vehicle.VehicleListResponse
 import com.convoy.mobile.dataModel.vehicle.VehicleResponse
+import com.convoy.mobile.dataModel.trip.MyRouteRequest
+import com.convoy.mobile.dataModel.trip.MyRouteResponse
 import com.convoy.mobile.network.ApiEndpoints
 import retrofit2.http.Body
 import retrofit2.http.GET
@@ -102,4 +104,16 @@ interface TripInterface {
         @Path("tripId") tripId: String,
         @Path("vehicleId") vehicleId: String,
     ): VehicleResponse
+
+    /**
+     * Directions from the caller's current position to the destination.
+     *
+     * POST because it carries live coordinates, and a position has no
+     * business sitting in a URL that ends up in access logs.
+     */
+    @POST(ApiEndpoints.TRIP_MY_ROUTE)
+    suspend fun getMyRoute(
+        @Path("tripId") tripId: String,
+        @Body request: MyRouteRequest,
+    ): MyRouteResponse
 }

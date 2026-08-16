@@ -31,6 +31,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -402,8 +403,11 @@ private fun ActiveTripScreen(
             destinationLng = trip.destination?.lng,
             destinationLabel = trip.destinationAddress ?: trip.name,
             // Other people's active stops. Your own is already the sheet.
+            // Every stop, including your own. Seeing your own marker next
+            // to your dot is how you confirm the group can actually see it —
+            // without it, marking a stop feels like it went nowhere.
             stops = viewModel.vehicles
-                .filter { it.id != viewModel.myVehicleId && it.hasActiveStop }
+                .filter { it.hasActiveStop }
                 .mapNotNull { v ->
                     val p = v.position ?: return@mapNotNull null
                     val lat = p.lat ?: return@mapNotNull null
@@ -412,11 +416,18 @@ private fun ActiveTripScreen(
                         lat = lat,
                         lng = lng,
                         icon = v.currentStatus?.icon,
-                        label = "${v.label} — ${v.currentStatus?.label.orEmpty()}",
+                        label = if (v.id == viewModel.myVehicleId) {
+                            "You — ${v.currentStatus?.label.orEmpty()}"
+                        } else {
+                            "${v.label} — ${v.currentStatus?.label.orEmpty()}"
+                        },
                         critical = v.currentStatus?.waitingForGroup == true,
+                        // Rendered as a badge on the vehicle dot, not as a
+                        // separate pin the dot would cover.
+                        standalone = false,
                     )
                 },
-            routePoints = trip.routeCache?.points.orEmpty(),
+            routePoints = (viewModel.myRoute ?: trip.routeCache)?.points.orEmpty(),
             fitRouteKey = fitRouteKey,
             modifier = Modifier.fillMaxSize(),
         )
@@ -532,31 +543,6 @@ private fun ActiveTripScreen(
             }
         }
 
-        if (routeSheetOpen) {
-            val rc = trip.routeCache
-            Box(modifier = Modifier.align(Alignment.BottomCenter)) {
-                RouteSheet(
-                    destinationLabel = trip.destinationAddress ?: trip.name,
-                    distanceText = rc?.distanceM?.let { Formatters.distance(it.toDouble()) },
-                    durationText = rc?.durationS?.let { Formatters.duration(it) },
-                    trafficAware = rc?.isTrafficAware == true,
-                    hasRoute = (rc?.points?.size ?: 0) >= 2,
-                    onShowOnMap = {
-                        fitRouteKey += 1
-                        routeSheetOpen = false
-                    },
-                    onOpenMapsApp = {
-                        val d = trip.destination
-                        if (d?.lat != null && d.lng != null) {
-                            Navigation.navigateTo(context, d.lat!!, d.lng!!, trip.destinationAddress)
-                        }
-                        routeSheetOpen = false
-                    },
-                    onDismiss = { routeSheetOpen = false },
-                )
-            }
-        }
-
         if (markerViewModel.pickerOpen) {
             MarkerPickerSheet(
                 favourites = markerViewModel.favourites,
@@ -596,7 +582,12 @@ private fun ActiveTripScreen(
                 markerViewModel = markerViewModel,
                 paused = paused,
                 modifier = Modifier.align(Alignment.BottomCenter),
-                onNavigateToDestination = { routeSheetOpen = true },
+                onNavigateToDestination = {
+                    routeSheetOpen = true
+                    // Fetched on open rather than on a second tap — the user
+                    // asked for directions, not for a screen about directions.
+                    viewModel.requestMyRoute()
+                },
                 // Tapping a car does NOT immediately throw you out of the
                 // app. A stopped friend is a fixed point, so a maps app
                 // handles that properly — but a moving one is exactly the
@@ -604,6 +595,47 @@ private fun ActiveTripScreen(
                 onNavigateToVehicle = { vehicle -> chaseVehicleId = vehicle.id },
             )
         }
+        if (routeSheetOpen) {
+            // Scrim first: it dims the map, and catches taps so the sheet
+            // behaves like a real modal rather than a floating panel with
+            // live controls still active behind it.
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(Color.Black.copy(alpha = 0.45f))
+                    .clickableOnce(haptic = false) { routeSheetOpen = false }
+            )
+        }
+
+        if (routeSheetOpen) {
+            // Prefer the route from where I actually am; fall back to the
+            // trip's shared origin-to-destination line.
+            val rc = viewModel.myRoute ?: trip.routeCache
+            Box(modifier = Modifier.align(Alignment.BottomCenter)) {
+                RouteSheet(
+                    destinationLabel = trip.destinationAddress ?: trip.name,
+                    distanceText = rc?.distanceM?.let { Formatters.distance(it.toDouble()) },
+                    durationText = rc?.durationS?.let { Formatters.duration(it) },
+                    trafficAware = rc?.isTrafficAware == true,
+                    hasRoute = (rc?.points?.size ?: 0) >= 2,
+                    isLoading = viewModel.isRouting,
+                    errorMessage = viewModel.routeError,
+                    onShowOnMap = {
+                        fitRouteKey += 1
+                        routeSheetOpen = false
+                    },
+                    onOpenMapsApp = {
+                        val d = trip.destination
+                        if (d?.lat != null && d.lng != null) {
+                            Navigation.navigateTo(context, d.lat!!, d.lng!!, trip.destinationAddress)
+                        }
+                        routeSheetOpen = false
+                    },
+                    onDismiss = { routeSheetOpen = false },
+                )
+            }
+        }
+
     }
 }
 

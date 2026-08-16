@@ -51,6 +51,10 @@ object ApiEndpoints {
     const val MARKER_BY_ID = "trips/{tripId}/markers/{markerId}"
     const val MARKER_CLEAR = "trips/{tripId}/markers/{markerId}/clear"
     const val MARKER_SET = "trips/{tripId}/marker-set"
+
+    // Directions from wherever the caller is right now to the destination.
+    // Per-person by nature — everyone in the convoy is somewhere different.
+    const val TRIP_MY_ROUTE = "trips/{tripId}/route"
     const val MARKER_SET_ENTRY = "trips/{tripId}/marker-set/{key}"
     const val MARKER_CATALOGUE = "markers/catalogue"
     const val MARKER_LIBRARY = "markers/library"
