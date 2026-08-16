@@ -158,7 +158,14 @@ class MapViewModel @Inject constructor(
      * Needs a position to route FROM, which is why this reports a clear
      * refusal rather than silently doing nothing when there is no fix yet.
      */
-    fun requestMyRoute() {
+    /**
+     * Routes from where I am to [toLat]/[toLng], or to the trip destination
+     * when no target is given.
+     *
+     * One function for every navigable thing — destination, a friend with a
+     * puncture, an SOS, a waypoint — because they are all the same question.
+     */
+    fun requestMyRoute(toLat: Double? = null, toLng: Double? = null) {
         val id = trip?.id ?: return
         val position = vehicles.firstOrNull { it.id == myVehicleId }?.position
 
@@ -172,12 +179,49 @@ class MapViewModel @Inject constructor(
         viewModelScope.launch {
             isRouting = true
             routeError = null
-            when (val r = repository.getMyRoute(id, lat, lng)) {
+            when (val r = repository.getMyRoute(id, lat, lng, toLat, toLng)) {
                 is NetworkResult.Success -> myRoute = r.data
                 is NetworkResult.Error -> routeError = r.message
                 NetworkResult.Loading -> Unit
             }
             isRouting = false
+        }
+    }
+
+    // ── Going to help someone ───────────────────────────────────
+    /** The vehicle I have told the group I am heading to, if any. */
+    var helpingVehicleId by mutableStateOf<String?>(null)
+        private set
+
+    fun tellThemImComing(vehicleId: String) {
+        val id = trip?.id ?: return
+        viewModelScope.launch {
+            when (val r = repository.startHelping(id, vehicleId)) {
+                is NetworkResult.Success -> helpingVehicleId = vehicleId
+                is NetworkResult.Error -> routeError = r.message
+                NetworkResult.Loading -> Unit
+            }
+        }
+    }
+
+    /**
+     * No longer going — the puncture got fixed, or you arrived.
+     *
+     * Clears the drawn route too: a line to a car you are no longer heading
+     * for is worse than no line, because it silently contradicts what the
+     * group has just been told.
+     */
+    fun stopHelping() {
+        val id = trip?.id ?: return
+        viewModelScope.launch {
+            when (val r = repository.stopHelping(id)) {
+                is NetworkResult.Success -> {
+                    helpingVehicleId = null
+                    myRoute = null
+                }
+                is NetworkResult.Error -> routeError = r.message
+                NetworkResult.Loading -> Unit
+            }
         }
     }
 

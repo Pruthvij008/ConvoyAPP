@@ -77,11 +77,21 @@ exports.getMyRoute = catchAsync(async (req, res, next) => {
   if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
     return next(new AppError("Your current position is required.", 400));
   }
-  if (!req.trip.destination?.coordinates?.length) {
+
+  // An explicit target wins: the caller may be routing to a friend with a
+  // puncture, an SOS, or a waypoint rather than to the trip's destination.
+  // Falling back to the destination keeps the common case a bare request.
+  const toLat = parseFloat(req.body.toLat);
+  const toLng = parseFloat(req.body.toLng);
+  const hasTarget = Number.isFinite(toLat) && Number.isFinite(toLng);
+
+  if (!hasTarget && !req.trip.destination?.coordinates?.length) {
     return next(new AppError("This trip has no destination set.", 409));
   }
 
-  const [destLng, destLat] = req.trip.destination.coordinates;
+  const [destLng, destLat] = hasTarget
+    ? [toLng, toLat]
+    : req.trip.destination.coordinates;
   const route = await routingService.getRoute(
     { lat, lng },
     { lat: destLat, lng: destLng }

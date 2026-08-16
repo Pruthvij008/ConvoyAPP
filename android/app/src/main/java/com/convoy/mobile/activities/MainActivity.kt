@@ -47,6 +47,8 @@ import com.convoy.mobile.customControls.SosButton
 import com.convoy.mobile.customControls.SosOverlay
 import com.convoy.mobile.customControls.DangerButton
 import com.convoy.mobile.customControls.MarkerPickerSheet
+import com.convoy.mobile.customControls.NavTarget
+import com.convoy.mobile.customControls.NavigationChoiceSheet
 import com.convoy.mobile.customControls.RouteSheet
 import com.convoy.mobile.customControls.GhostButton
 import com.convoy.mobile.customControls.PrimaryButton
@@ -312,9 +314,11 @@ private fun ActiveTripScreen(
     // precisely the staleness Chase Mode exists to avoid.
     var chaseVehicleId by remember { mutableStateOf<String?>(null) }
 
-    // Directions opens this rather than jumping straight to a maps app —
-    // leaving Convoy is a choice the user makes, not a side effect.
-    var routeSheetOpen by remember { mutableStateOf(false) }
+    // Whatever the user has asked to navigate to. EVERY map action sets
+    // this — the destination button, tapping a car, an SOS, a stop — so the
+    // "in Convoy or in Google Maps?" question is asked identically
+    // everywhere instead of each screen deciding for itself.
+    var navTarget by remember { mutableStateOf<NavTarget?>(null) }
 
     // Bumped to ask the map to frame the whole route.
     var fitRouteKey by remember { mutableStateOf(0) }
@@ -333,7 +337,14 @@ private fun ActiveTripScreen(
             onNavigate = {
                 val loc = critical.location
                 if (loc?.lat != null && loc.lng != null) {
-                    Navigation.navigateTo(context, loc.lat!!, loc.lng!!, raisedBy)
+                    navTarget = NavTarget(
+                        lat = loc.lat!!,
+                        lng = loc.lng!!,
+                        label = raisedBy ?: "Emergency",
+                        subtitle = critical.message,
+                        vehicleId = critical.vehicleId,
+                        urgent = true,
+                    )
                 }
             },
             onCall = null,
@@ -583,55 +594,114 @@ private fun ActiveTripScreen(
                 paused = paused,
                 modifier = Modifier.align(Alignment.BottomCenter),
                 onNavigateToDestination = {
-                    routeSheetOpen = true
-                    // Fetched on open rather than on a second tap — the user
-                    // asked for directions, not for a screen about directions.
-                    viewModel.requestMyRoute()
+                    val d = trip.destination
+                    if (d?.lat != null && d.lng != null) {
+                        navTarget = NavTarget(
+                            lat = d.lat!!,
+                            lng = d.lng!!,
+                            label = trip.destinationAddress ?: trip.name,
+                            subtitle = "Where the trip is headed",
+                        )
+                    }
                 },
                 // Tapping a car does NOT immediately throw you out of the
                 // app. A stopped friend is a fixed point, so a maps app
                 // handles that properly — but a moving one is exactly the
                 // case turn-by-turn cannot serve, and Chase Mode can.
-                onNavigateToVehicle = { vehicle -> chaseVehicleId = vehicle.id },
+                onNavigateToVehicle = { vehicle ->
+                    val p = vehicle.position
+                    if (p?.lat != null && p.lng != null) {
+                        navTarget = NavTarget(
+                            lat = p.lat!!,
+                            lng = p.lng!!,
+                            label = vehicle.label,
+                            subtitle = vehicle.currentStatus?.label ?: "In the convoy",
+                            vehicleId = vehicle.id,
+                            isMoving = !vehicle.hasActiveStop &&
+                                (vehicle.lastKnown?.speedKmh ?: 0.0) >= 3.0,
+                        )
+                    }
+                },
             )
         }
-        if (routeSheetOpen) {
-            // Scrim first: it dims the map, and catches taps so the sheet
-            // behaves like a real modal rather than a floating panel with
-            // live controls still active behind it.
+        navTarget?.let { target ->
+            // Scrim first, so the sheet reads as modal and a stray tap on
+            // the map behind it cannot fire something else.
             Box(
                 modifier = Modifier
                     .fillMaxSize()
                     .background(Color.Black.copy(alpha = 0.45f))
-                    .clickableOnce(haptic = false) { routeSheetOpen = false }
+                    .clickableOnce(haptic = false) { navTarget = null }
             )
+
+            val myPos = viewModel.vehicles
+                .firstOrNull { it.id == viewModel.myVehicleId }?.position
+            val metres = if (myPos?.lat != null && myPos.lng != null) {
+                Geo.distanceMeters(myPos.lat!!, myPos.lng!!, target.lat, target.lng)
+            } else {
+                null
+            }
+
+            Box(modifier = Modifier.align(Alignment.BottomCenter)) {
+                NavigationChoiceSheet(
+                    target = target,
+                    distanceText = metres?.let { Formatters.distance(it) },
+                    // Only offered for a vehicle, and never for your own.
+                    canOfferHelp = target.vehicleId != null &&
+                        target.vehicleId != viewModel.myVehicleId,
+                    isBusy = viewModel.isRouting,
+                    onUseInApp = {
+                        viewModel.requestMyRoute(target.lat, target.lng)
+                        fitRouteKey += 1
+                        navTarget = null
+                    },
+                    onUseGoogleMaps = {
+                        Navigation.navigateTo(context, target.lat, target.lng, target.label)
+                        navTarget = null
+                    },
+                    onTellThemImComing = {
+                        target.vehicleId?.let { viewModel.tellThemImComing(it) }
+                        // Routed as well as announced: saying you are coming
+                        // and then not being shown the way would be a
+                        // strange place to leave someone.
+                        viewModel.requestMyRoute(target.lat, target.lng)
+                        fitRouteKey += 1
+                        navTarget = null
+                    },
+                    onDismiss = { navTarget = null },
+                )
+            }
         }
 
-        if (routeSheetOpen) {
-            // Prefer the route from where I actually am; fall back to the
-            // trip's shared origin-to-destination line.
-            val rc = viewModel.myRoute ?: trip.routeCache
-            Box(modifier = Modifier.align(Alignment.BottomCenter)) {
-                RouteSheet(
-                    destinationLabel = trip.destinationAddress ?: trip.name,
-                    distanceText = rc?.distanceM?.let { Formatters.distance(it.toDouble()) },
-                    durationText = rc?.durationS?.let { Formatters.duration(it) },
-                    trafficAware = rc?.isTrafficAware == true,
-                    hasRoute = (rc?.points?.size ?: 0) >= 2,
-                    isLoading = viewModel.isRouting,
-                    errorMessage = viewModel.routeError,
-                    onShowOnMap = {
-                        fitRouteKey += 1
-                        routeSheetOpen = false
-                    },
-                    onOpenMapsApp = {
-                        val d = trip.destination
-                        if (d?.lat != null && d.lng != null) {
-                            Navigation.navigateTo(context, d.lat!!, d.lng!!, trip.destinationAddress)
-                        }
-                        routeSheetOpen = false
-                    },
-                    onDismiss = { routeSheetOpen = false },
+        // A standing banner while you are on your way to someone, with the
+        // way out. A helper whose friend has already fixed the puncture must
+        // be able to say so — otherwise the group is left believing help is
+        // still coming.
+        viewModel.helpingVehicleId?.let { id ->
+            val who = viewModel.vehicles.firstOrNull { it.id == id }?.label ?: "them"
+            Row(
+                modifier = Modifier
+                    .align(Alignment.TopCenter)
+                    .statusBarsPadding()
+                    .padding(top = 120.dp, start = 14.dp, end = 14.dp)
+                    .fillMaxWidth()
+                    .background(colors.route.copy(alpha = 0.94f), RoundedCornerShape(14.dp))
+                    .padding(horizontal = 14.dp, vertical = 11.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(
+                    text = "On your way to $who",
+                    color = if (colors.isDark) Color(0xFF04221E) else Color.White,
+                    fontSize = 13.5.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    modifier = Modifier.weight(1f),
+                )
+                Text(
+                    text = "Not going",
+                    color = if (colors.isDark) Color(0xFF04221E) else Color.White,
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.Bold,
+                    modifier = Modifier.clickableOnce { viewModel.stopHelping() },
                 )
             }
         }

@@ -20,6 +20,8 @@ import com.convoy.mobile.dataModel.vehicle.VehicleListResponse
 import com.convoy.mobile.dataModel.vehicle.VehicleResponse
 import com.convoy.mobile.dataModel.trip.MyRouteRequest
 import com.convoy.mobile.dataModel.trip.MyRouteResponse
+import com.convoy.mobile.dataModel.trip.HelpRequest
+import retrofit2.http.HTTP
 import com.convoy.mobile.network.ApiEndpoints
 import retrofit2.http.Body
 import retrofit2.http.GET
@@ -116,4 +118,17 @@ interface TripInterface {
         @Path("tripId") tripId: String,
         @Body request: MyRouteRequest,
     ): MyRouteResponse
+
+    /** Announces to the whole convoy that you are going to help someone. */
+    @POST(ApiEndpoints.TRIP_HELP)
+    suspend fun startHelping(
+        @Path("tripId") tripId: String,
+        @Body request: HelpRequest,
+    ): SimpleResponse
+
+    /** No longer going — either arrived, or no longer needed. */
+    @HTTP(method = "DELETE", path = ApiEndpoints.TRIP_HELP, hasBody = false)
+    suspend fun stopHelping(
+        @Path("tripId") tripId: String,
+    ): SimpleResponse
 }

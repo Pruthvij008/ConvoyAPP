@@ -610,10 +610,24 @@ data class RouteCache(
     val isTrafficAware: Boolean get() = provider == "google"
 }
 
-/** Body for asking the server to route us from where we are now. */
+/**
+ * Body for asking the server to route us from where we are now.
+ *
+ * [toLat]/[toLng] are optional: omitted, the server routes to the trip's
+ * destination; supplied, it routes to a friend, an SOS or a waypoint. One
+ * endpoint rather than several, because "get me there" is the same question
+ * whatever "there" happens to be.
+ */
 data class MyRouteRequest(
     @SerializedName("lat") val lat: Double,
     @SerializedName("lng") val lng: Double,
+    @SerializedName("toLat") val toLat: Double? = null,
+    @SerializedName("toLng") val toLng: Double? = null,
+)
+
+/** Body for "I'm on the way to that car." */
+data class HelpRequest(
+    @SerializedName("vehicleId") val vehicleId: String,
 )
 
 data class MyRouteResponse(

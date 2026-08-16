@@ -17,6 +17,7 @@ import com.convoy.mobile.dataModel.trip.TripPreview
 import com.convoy.mobile.dataModel.trip.VehicleInput
 import com.convoy.mobile.dataModel.vehicle.Vehicle
 import com.convoy.mobile.interfaces.TripInterface
+import com.convoy.mobile.dataModel.trip.HelpRequest
 import com.convoy.mobile.dataModel.trip.MyRouteRequest
 import com.convoy.mobile.dataModel.trip.RouteCache
 import com.convoy.mobile.network.NetworkResult
@@ -257,9 +258,15 @@ class TripRepository @Inject constructor(
         tripId: String,
         lat: Double,
         lng: Double,
+        toLat: Double? = null,
+        toLng: Double? = null,
     ): NetworkResult<RouteCache> {
-        Log.d(TAG, "Routing from $lat,$lng")
-        return when (val r = safeApiCall { tripApi.getMyRoute(tripId, MyRouteRequest(lat, lng)) }) {
+        Log.d(TAG, "Routing from $lat,$lng to ${toLat ?: "destination"}")
+        return when (
+            val r = safeApiCall {
+                tripApi.getMyRoute(tripId, MyRouteRequest(lat, lng, toLat, toLng))
+            }
+        ) {
             is NetworkResult.Success -> {
                 val route = r.data.data.route
                 if (route == null || route.points.size < 2) {
@@ -272,6 +279,22 @@ class TripRepository @Inject constructor(
             NetworkResult.Loading -> NetworkResult.Loading
         }
     }
+
+    /** Announces to the convoy that you have peeled off to reach someone. */
+    suspend fun startHelping(tripId: String, vehicleId: String): NetworkResult<Unit> =
+        when (val r = safeApiCall { tripApi.startHelping(tripId, HelpRequest(vehicleId)) }) {
+            is NetworkResult.Success -> NetworkResult.Success(Unit)
+            is NetworkResult.Error -> r
+            NetworkResult.Loading -> NetworkResult.Loading
+        }
+
+    /** Arrived, or no longer needed. Either way the group is told. */
+    suspend fun stopHelping(tripId: String): NetworkResult<Unit> =
+        when (val r = safeApiCall { tripApi.stopHelping(tripId) }) {
+            is NetworkResult.Success -> NetworkResult.Success(Unit)
+            is NetworkResult.Error -> r
+            NetworkResult.Loading -> NetworkResult.Loading
+        }
 
     private companion object {
         const val TAG = "TripRepository"
