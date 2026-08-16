@@ -41,3 +41,7 @@ Thumbs.db
 # ── Runtime output ───────────────────────────────────────────────
 backend/uploads/*
 !backend/uploads/.gitkeep
+
+# Built artefacts — 57 MB of binary does not belong in git.
+*.apk
+*.aab
