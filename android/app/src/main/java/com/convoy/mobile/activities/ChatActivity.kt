@@ -38,6 +38,10 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.foundation.layout.widthIn
 import com.convoy.mobile.dataModel.message.SendState
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.convoy.mobile.customControls.clickableOnce
@@ -88,6 +92,7 @@ class ChatActivity : BaseActivity() {
 private fun ChatScreen(viewModel: ChatViewModel, onBack: () -> Unit) {
     val colors = ConvoyTheme.colors
     val listState = rememberLazyListState()
+    val keyboard = LocalSoftwareKeyboardController.current
 
     // New messages scroll into view; reading older ones is a deliberate scroll.
     LaunchedEffect(viewModel.messages.size) {
@@ -193,6 +198,14 @@ private fun ChatScreen(viewModel: ChatViewModel, onBack: () -> Unit) {
                 placeholder = { Text("Message the convoy…", color = colors.dim, fontSize = 15.sp) },
                 textStyle = LocalTextStyle.current.copy(fontSize = 15.sp, color = colors.text),
                 maxLines = 4,
+                // Send rather than Done: the action key doing the same thing
+                // as the send button is what people expect in a chat, and it
+                // saves a reach across the screen while driving.
+                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send),
+                keyboardActions = KeyboardActions(onSend = {
+                    viewModel.sendDraft()
+                    keyboard?.hide()
+                }),
                 colors = TextFieldDefaults.colors(
                     focusedContainerColor = colors.surface,
                     unfocusedContainerColor = colors.surface,

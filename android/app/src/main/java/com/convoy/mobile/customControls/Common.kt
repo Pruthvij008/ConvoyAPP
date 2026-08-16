@@ -11,6 +11,11 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
+import androidx.compose.ui.focus.FocusDirection
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.LocalTextStyle
 import androidx.compose.material3.Text
@@ -176,10 +181,27 @@ fun ConvoyTextField(
     placeholder: String,
     modifier: Modifier = Modifier,
     singleLine: Boolean = true,
-    keyboardOptions: KeyboardOptions = KeyboardOptions.Default,
+    // Done rather than Default. A field with no explicit action leaves the
+    // keyboard covering half the screen with no obvious way to dismiss it,
+    // which on a form with a button underneath means the button cannot be
+    // reached. Every field gets a working Done key unless it asks for
+    // something else.
+    keyboardOptions: KeyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
+    /** Runs when the user presses the keyboard's action key. */
+    onImeAction: (() -> Unit)? = null,
     textSize: Int = 17,
 ) {
     val colors = ConvoyTheme.colors
+    val focusManager = LocalFocusManager.current
+    val keyboard = LocalSoftwareKeyboardController.current
+
+    // Both are needed: hiding the keyboard without clearing focus leaves the
+    // field looking active with a cursor blinking in it, and clearing focus
+    // alone does not reliably dismiss the keyboard on every OEM.
+    val dismiss = {
+        keyboard?.hide()
+        focusManager.clearFocus()
+    }
 
     TextField(
         value = value,
@@ -188,6 +210,15 @@ fun ConvoyTextField(
         textStyle = LocalTextStyle.current.copy(fontSize = textSize.sp, color = colors.text),
         placeholder = { Text(placeholder, color = colors.dim, fontSize = textSize.sp) },
         keyboardOptions = keyboardOptions,
+        keyboardActions = KeyboardActions(
+            onDone = { onImeAction?.invoke(); dismiss() },
+            onGo = { onImeAction?.invoke(); dismiss() },
+            onSend = { onImeAction?.invoke(); dismiss() },
+            onSearch = { onImeAction?.invoke(); dismiss() },
+            // Next moves to the following field rather than dismissing —
+            // that is the whole point of a Next key on a form.
+            onNext = { focusManager.moveFocus(FocusDirection.Down) },
+        ),
         colors = TextFieldDefaults.colors(
             focusedContainerColor = colors.surface,
             unfocusedContainerColor = colors.surface,

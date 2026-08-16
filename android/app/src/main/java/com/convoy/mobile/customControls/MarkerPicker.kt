@@ -237,6 +237,9 @@ private fun CreateMarkerStep(
             onValueChange = onLabelChanged,
             placeholder = "Name it — e.g. Washroom",
             textSize = 16,
+            // Done closes the keyboard so the icon grid and the Create
+            // button below it are reachable without a back press.
+            onImeAction = {},
         )
 
         Spacer(Modifier.height(18.dp))
