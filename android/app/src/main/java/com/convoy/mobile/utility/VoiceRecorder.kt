@@ -5,6 +5,7 @@ import android.media.MediaPlayer
 import android.media.MediaRecorder
 import android.os.Build
 import android.util.Log
+import androidx.core.content.ContextCompat
 import java.io.File
 
 /**
@@ -26,6 +27,18 @@ class VoiceRecorder(private val context: Context) {
     private var startedAt: Long = 0L
 
     val isRecording: Boolean get() = recorder != null
+
+    /**
+     * Whether the microphone permission is actually granted.
+     *
+     * MediaRecorder throws the same way whether the permission is missing
+     * or the microphone is genuinely busy, so this is what separates
+     * "grant permission" from "close the other app" in the message shown.
+     */
+    fun hasMicPermission(): Boolean =
+        ContextCompat.checkSelfPermission(
+            context, android.Manifest.permission.RECORD_AUDIO,
+        ) == android.content.pm.PackageManager.PERMISSION_GRANTED
 
     /**
      * Starts recording. Returns false if the microphone could not be opened

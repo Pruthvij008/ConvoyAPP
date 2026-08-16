@@ -1,6 +1,10 @@
 package com.convoy.mobile.activities
 
 import android.os.Bundle
+import android.Manifest
+import android.content.pm.PackageManager
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.core.content.ContextCompat
 import androidx.activity.viewModels
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -67,6 +71,31 @@ import dagger.hilt.android.AndroidEntryPoint
 class ChatActivity : BaseActivity() {
 
     private val viewModel: ChatViewModel by viewModels()
+
+    /**
+     * The microphone permission.
+     *
+     * RECORD_AUDIO is declared in the manifest, but Android 6 onwards also
+     * requires it to be granted at runtime — without that, MediaRecorder
+     * throws on prepare() and the failure looks exactly like the microphone
+     * being busy. Asked for on first use rather than at startup, because a
+     * map app asking for the microphone before you have tried to speak is
+     * alarming and gets refused.
+     */
+    private val micPermission = registerForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { granted ->
+        viewModel.micPermissionResult(granted)
+    }
+
+    fun ensureMicPermission(): Boolean {
+        val granted = ContextCompat.checkSelfPermission(
+            this, Manifest.permission.RECORD_AUDIO,
+        ) == PackageManager.PERMISSION_GRANTED
+
+        if (!granted) micPermission.launch(Manifest.permission.RECORD_AUDIO)
+        return granted
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -273,7 +302,12 @@ private fun ChatScreen(viewModel: ChatViewModel, onBack: () -> Unit) {
                         .pointerInput(Unit) {
                             detectTapGestures(
                                 onPress = {
-                                    viewModel.startRecording(context)
+                                    // Returns false and shows the system
+                                    // prompt the first time; the recording
+                                    // starts on the next press once granted.
+                                    if ((context as? ChatActivity)?.ensureMicPermission() != false) {
+                                        viewModel.startRecording(context)
+                                    }
                                     // Suspends until the finger lifts or the
                                     // gesture is cancelled, which is what
                                     // makes this hold-to-talk rather than a

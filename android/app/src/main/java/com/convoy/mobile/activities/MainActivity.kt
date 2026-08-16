@@ -482,6 +482,8 @@ private fun ActiveTripScreen(
                 etaText = null,
                 trafficAware = false,
                 modifier = Modifier.align(Alignment.TopCenter),
+                onMarkStop = markerViewModel::openPicker,
+                onOpenChat = { onChat() },
                 onExit = { navigating = false },
             )
             NavigationFooter(

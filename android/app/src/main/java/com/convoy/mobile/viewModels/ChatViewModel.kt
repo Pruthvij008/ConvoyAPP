@@ -313,7 +313,13 @@ class ChatViewModel @Inject constructor(
 
         val rec = VoiceRecorder(context)
         if (!rec.start()) {
-            errorMessage = "Couldn't start recording — another app may be using the microphone."
+            // Distinguished, because the two causes need different actions
+            // from the user and the old message blamed the wrong one.
+            errorMessage = if (!rec.hasMicPermission()) {
+                "Convoy needs permission to use the microphone."
+            } else {
+                "Couldn't start recording — another app may be using the microphone."
+            }
             return
         }
 
@@ -372,6 +378,15 @@ class ChatViewModel @Inject constructor(
     }
 
     /** Slid away from the button — throw it away without sending. */
+    /** The system prompt has been answered. */
+    fun micPermissionResult(granted: Boolean) {
+        errorMessage = if (granted) {
+            null
+        } else {
+            "Without the microphone, voice notes can't be recorded."
+        }
+    }
+
     fun cancelRecording() {
         isRecording = false
         tickJob?.cancel()

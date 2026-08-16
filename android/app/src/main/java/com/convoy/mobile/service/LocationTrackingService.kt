@@ -153,8 +153,25 @@ class LocationTrackingService : LifecycleService() {
         }
     }
 
+    /**
+     * The worst fix we are willing to broadcast, in metres.
+     *
+     * A position accurate to half a kilometre is not a position — it puts a
+     * car on the wrong road entirely, and the convoy would rather see the
+     * last good fix marked stale than a confident wrong one. Anything above
+     * this is dropped and the next fix is waited for.
+     */
+    private val worstUsableAccuracyM = 100f
+
     /** One place that turns an Android Location into an outgoing position. */
     private fun publish(location: android.location.Location) {
+        // hasAccuracy() is checked first: a fix with no accuracy figure at
+        // all cannot be judged, and is trusted rather than discarded.
+        if (location.hasAccuracy() && location.accuracy > worstUsableAccuracyM) {
+            Log.w(TAG, "Dropped a ${location.accuracy.toInt()}m fix — too vague to place a car")
+            return
+        }
+
         val speedKmh = location.speed * 3.6
         themeManager.updateLocation(location.latitude, location.longitude)
 
@@ -193,11 +210,22 @@ class LocationTrackingService : LifecycleService() {
 
     private fun requestUpdates(intervalMs: Long) {
         val request = LocationRequest.Builder(intervalMs)
-            // BALANCED rather than HIGH_ACCURACY: on a road, a few metres of
-            // error is invisible, and the power difference is not.
-            .setPriority(Priority.PRIORITY_BALANCED_POWER_ACCURACY)
+            // HIGH_ACCURACY means "use the GPS radio". BALANCED does not —
+            // it uses wifi and cell towers, which on mobile data with no
+            // wifi in range is tower triangulation, accurate to HUNDREDS of
+            // metres. That is useless for showing which car is where, and
+            // it is why positions were landing ~100 m from the truth.
+            //
+            // The battery cost is real but it is paid on OUR terms: the
+            // interval already stretches to a heartbeat when parked, so GPS
+            // is only running hard while the convoy is actually moving.
+            .setPriority(Priority.PRIORITY_HIGH_ACCURACY)
             .setMinUpdateIntervalMillis(intervalMs / 2)
             .setMaxUpdateDelayMillis(intervalMs * 2) // lets Android batch wakeups
+            // A car covers this between fixes at any real speed, so it
+            // costs nothing while moving and suppresses the metre-by-metre
+            // jitter of a stationary GPS.
+            .setMinUpdateDistanceMeters(10f)
             .build()
 
         try {

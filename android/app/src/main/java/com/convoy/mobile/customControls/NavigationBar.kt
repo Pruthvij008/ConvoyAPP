@@ -43,7 +43,10 @@ fun NavigationBar(
     distanceText: String?,
     etaText: String?,
     trafficAware: Boolean,
+    unreadCount: Int = 0,
     modifier: Modifier = Modifier,
+    onMarkStop: () -> Unit,
+    onOpenChat: () -> Unit,
     onExit: () -> Unit,
 ) {
     val colors = ConvoyTheme.colors
@@ -84,6 +87,48 @@ fun NavigationBar(
                     fontWeight = FontWeight.SemiBold,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
+                )
+            }
+
+            // Marking a stop and reaching the group are the two things you
+            // are MOST likely to need while driving, so hiding them behind
+            // an exit from navigation was exactly backwards. Kept as icons
+            // to stay out of the way of the road.
+            NavAction(glyph = "✋", onClick = onMarkStop)
+            Spacer(Modifier.size(8.dp))
+            NavAction(glyph = "💬", unread = unreadCount, onClick = onOpenChat)
+        }
+    }
+}
+
+/** A round icon button sized for a thumb, not a fingertip. */
+@Composable
+private fun NavAction(glyph: String, unread: Int = 0, onClick: () -> Unit) {
+    val colors = ConvoyTheme.colors
+
+    Box(contentAlignment = Alignment.TopEnd) {
+        Box(
+            modifier = Modifier
+                .size(44.dp)
+                .background(colors.surface2, CircleShape)
+                .clickableOnce(onClick = onClick),
+            contentAlignment = Alignment.Center,
+        ) {
+            Text(text = glyph, fontSize = 17.sp)
+        }
+
+        if (unread > 0) {
+            Box(
+                modifier = Modifier
+                    .size(17.dp)
+                    .background(colors.red, CircleShape),
+                contentAlignment = Alignment.Center,
+            ) {
+                Text(
+                    text = if (unread > 9) "9+" else unread.toString(),
+                    color = androidx.compose.ui.graphics.Color.White,
+                    fontSize = 9.5.sp,
+                    fontWeight = FontWeight.Bold,
                 )
             }
         }
