@@ -45,9 +45,14 @@ data class Message(
     @SerializedName("createdAt")
     val createdAt: String? = null,
 
-    /** URL of the recorded clip, when kind is VOICE. */
-    @SerializedName("mediaUrl")
-    val mediaUrl: String? = null,
+    /**
+     * The attached clip or photo, when there is one.
+     *
+     * A nested object, not a flat url — the publicId inside it is what lets
+     * the asset be deleted later, which a url alone cannot do.
+     */
+    @SerializedName("media")
+    val media: com.convoy.mobile.dataModel.media.UploadedMedia? = null,
 
     /**
      * Local-only delivery state.
@@ -72,6 +77,9 @@ data class Message(
     val isSystem: Boolean get() = kind == "SYSTEM"
     val isCritical: Boolean get() = severity == "CRITICAL"
     val readCount: Int get() = readBy?.size ?: 0
+
+    /** Playable url for a voice note, if the clip actually arrived. */
+    val mediaUrl: String? get() = media?.url
 }
 
 data class ReadReceipt(
@@ -108,6 +116,13 @@ data class SendMessageRequest(
 
     @SerializedName("kind")
     val kind: String = "TEXT",
+
+    /** Set for VOICE and PHOTO — the verified Cloudinary asset. */
+    @SerializedName("media")
+    val media: com.convoy.mobile.dataModel.media.UploadedMedia? = null,
+
+    @SerializedName("durationMs")
+    val durationMs: Long? = null,
 
     @SerializedName("body")
     val body: String? = null,

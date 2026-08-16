@@ -2,6 +2,7 @@ package com.convoy.mobile.repository
 
 import android.util.Log
 import com.convoy.mobile.dataModel.message.MarkReadRequest
+import com.convoy.mobile.dataModel.media.UploadedMedia
 import com.convoy.mobile.dataModel.message.Message
 import com.convoy.mobile.dataModel.message.QuickMessage
 import com.convoy.mobile.dataModel.message.SendMessageRequest
@@ -79,6 +80,27 @@ class MessageRepository @Inject constructor(
             is NetworkResult.Error -> r
             NetworkResult.Loading -> NetworkResult.Loading
         }
+    }
+
+    /**
+     * Sends a voice note whose clip has already been uploaded and verified.
+     *
+     * The media object comes from the confirm step rather than from the
+     * client's own report of what it uploaded — that is the whole point of
+     * confirming.
+     */
+    suspend fun sendVoice(
+        tripId: String,
+        media: UploadedMedia,
+        durationMs: Long,
+    ): NetworkResult<Message> {
+        Log.d(TAG, "Voice note: ${durationMs}ms")
+        val request = SendMessageRequest(
+            kind = "VOICE",
+            media = media,
+            durationMs = durationMs,
+        )
+        return send(tripId, request)
     }
 
     private companion object {

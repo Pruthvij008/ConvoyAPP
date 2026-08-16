@@ -4,6 +4,7 @@ import com.convoy.mobile.BuildConfig
 import com.convoy.mobile.interfaces.AuthInterface
 import com.convoy.mobile.interfaces.AlertInterface
 import com.convoy.mobile.interfaces.MarkerInterface
+import com.convoy.mobile.interfaces.MediaInterface
 import com.convoy.mobile.interfaces.MessageInterface
 import com.convoy.mobile.interfaces.PlacesInterface
 import com.convoy.mobile.interfaces.TripInterface
@@ -104,5 +105,10 @@ object NetworkModule {
     fun providePlacesInterface(retrofit: Retrofit): PlacesInterface =
         retrofit.create(PlacesInterface::class.java)
 
-    // Waypoint and Media interfaces are added here as each is built.
+    @Provides
+    @Singleton
+    fun provideMediaInterface(retrofit: Retrofit): MediaInterface =
+        retrofit.create(MediaInterface::class.java)
+
+    // The Waypoint interface is added here when it is built.
 }

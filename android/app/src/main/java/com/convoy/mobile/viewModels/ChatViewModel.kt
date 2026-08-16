@@ -17,6 +17,11 @@ import com.convoy.mobile.repository.MessageRepository
 import com.convoy.mobile.utility.PrefsManager
 import com.google.gson.Gson
 import dagger.hilt.android.lifecycle.HiltViewModel
+import com.convoy.mobile.repository.MediaRepository
+import com.convoy.mobile.utility.VoicePlayer
+import com.convoy.mobile.utility.VoiceRecorder
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import javax.inject.Inject
 
@@ -32,6 +37,7 @@ import javax.inject.Inject
 class ChatViewModel @Inject constructor(
     private val repository: MessageRepository,
     private val tripRepository: TripRepository,
+    private val mediaRepository: MediaRepository,
     private val socketManager: SocketManager,
     private val prefs: PrefsManager,
     private val gson: Gson,
@@ -289,6 +295,114 @@ class ChatViewModel @Inject constructor(
         unread = 0
         val ids = messages.takeLast(30).map { it.id }
         viewModelScope.launch { repository.markRead(id, ids) }
+    }
+
+    // ── Voice ───────────────────────────────────────────────────
+    var isRecording by mutableStateOf(false)
+        private set
+    var recordingMs by mutableStateOf(0L)
+        private set
+    var isUploadingVoice by mutableStateOf(false)
+        private set
+
+    private var recorder: VoiceRecorder? = null
+    private var tickJob: Job? = null
+
+    fun startRecording(context: android.content.Context) {
+        if (isRecording) return
+
+        val rec = VoiceRecorder(context)
+        if (!rec.start()) {
+            errorMessage = "Couldn't start recording — another app may be using the microphone."
+            return
+        }
+
+        recorder = rec
+        isRecording = true
+        recordingMs = 0L
+
+        tickJob = viewModelScope.launch {
+            while (isRecording) {
+                delay(100)
+                recordingMs += 100
+                // A button held down in a pocket must not record forever.
+                if (recordingMs >= VoiceRecorder.MAX_DURATION_MS) {
+                    stopRecordingAndSend()
+                    break
+                }
+            }
+        }
+    }
+
+    /** Released the button — send whatever was captured. */
+    fun stopRecordingAndSend() {
+        val id = tripId ?: return
+        val rec = recorder ?: return
+
+        isRecording = false
+        tickJob?.cancel()
+        recorder = null
+
+        val clip = rec.stop()
+        if (clip == null) {
+            // Too short to be a message: a tap, not a hold. Said out loud
+            // rather than silently dropped, so the user learns the gesture.
+            errorMessage = "Hold the button to record."
+            return
+        }
+
+        viewModelScope.launch {
+            isUploadingVoice = true
+            when (val up = mediaRepository.upload(id, clip.file, resourceType = "video")) {
+                is NetworkResult.Success -> {
+                    when (val sent = repository.sendVoice(id, up.data, clip.durationMs)) {
+                        is NetworkResult.Success -> appendIfNew(sent.data)
+                        is NetworkResult.Error -> errorMessage = sent.message
+                        NetworkResult.Loading -> Unit
+                    }
+                }
+                is NetworkResult.Error -> errorMessage = up.message
+                NetworkResult.Loading -> Unit
+            }
+            // The local copy has served its purpose either way — it lives in
+            // the cache directory and would otherwise accumulate.
+            clip.file.delete()
+            isUploadingVoice = false
+        }
+    }
+
+    /** Slid away from the button — throw it away without sending. */
+    fun cancelRecording() {
+        isRecording = false
+        tickJob?.cancel()
+        recorder?.cancel()
+        recorder = null
+        recordingMs = 0L
+    }
+
+    // ── Playback ────────────────────────────────────────────────
+    private val player = VoicePlayer()
+
+    var playingUrl by mutableStateOf<String?>(null)
+        private set
+
+    fun togglePlayback(url: String) {
+        if (playingUrl == url) {
+            player.stop()
+            playingUrl = null
+        } else {
+            playingUrl = url
+            player.play(url) { playingUrl = null }
+        }
+    }
+
+    override fun onCleared() {
+        super.onCleared()
+        // A clip still playing after the screen is gone would be a voice
+        // from nowhere.
+        player.stop()
+        recorder?.cancel()
+        tickJob?.cancel()
     }
 
     fun dismissError() { errorMessage = null }

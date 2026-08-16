@@ -42,6 +42,10 @@ import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
+import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalContext
+import com.convoy.mobile.utility.Formatters
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.convoy.mobile.customControls.clickableOnce
@@ -164,9 +168,40 @@ private fun ChatScreen(viewModel: ChatViewModel, onBack: () -> Unit) {
                         message = message,
                         isMine = message.senderId != null &&
                             message.senderId == viewModel.myParticipantId,
+                        isPlaying = message.mediaUrl != null &&
+                            message.mediaUrl == viewModel.playingUrl,
                         onRetry = { viewModel.retry(message) },
+                        onPlayVoice = {
+                            message.mediaUrl?.let { viewModel.togglePlayback(it) }
+                        },
                     )
                 }
+            }
+        }
+
+        if (viewModel.isRecording) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 8.dp)
+                    .background(colors.red.copy(alpha = 0.13f), RoundedCornerShape(14.dp))
+                    .padding(horizontal = 14.dp, vertical = 12.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
+                Box(modifier = Modifier.size(9.dp).background(colors.red, CircleShape))
+                Text(
+                    text = "Recording  ${"%.1f".format(viewModel.recordingMs / 1000.0)}s",
+                    color = colors.red,
+                    fontSize = 13.5.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    modifier = Modifier.weight(1f),
+                )
+                Text(
+                    text = "Slide away to cancel",
+                    color = colors.muted,
+                    fontSize = 11.5.sp,
+                )
             }
         }
 
@@ -219,13 +254,49 @@ private fun ChatScreen(viewModel: ChatViewModel, onBack: () -> Unit) {
                     .border(1.dp, colors.border, RoundedCornerShape(22.dp)),
             )
 
+            // Mic when there is nothing typed, send arrow once there is.
+            // One button doing the obvious thing beats two competing for a
+            // thumb, and the driver never has to look for the right one.
+            if (viewModel.draft.isBlank()) {
+                val context = LocalContext.current
+                Box(
+                    modifier = Modifier
+                        .size(48.dp)
+                        .background(
+                            if (viewModel.isRecording) colors.red else colors.surface2,
+                            CircleShape,
+                        )
+                        .pointerInput(Unit) {
+                            detectTapGestures(
+                                onPress = {
+                                    viewModel.startRecording(context)
+                                    // Suspends until the finger lifts or the
+                                    // gesture is cancelled, which is what
+                                    // makes this hold-to-talk rather than a
+                                    // toggle that can be left recording.
+                                    val completed = tryAwaitRelease()
+                                    if (completed) {
+                                        viewModel.stopRecordingAndSend()
+                                    } else {
+                                        viewModel.cancelRecording()
+                                    }
+                                },
+                            )
+                        },
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Text(
+                        text = if (viewModel.isUploadingVoice) "…" else "🎤",
+                        fontSize = 19.sp,
+                    )
+                }
+                return@Row
+            }
+
             Box(
                 modifier = Modifier
                     .size(48.dp)
-                    .background(
-                        if (viewModel.draft.isBlank()) colors.surface2 else colors.route,
-                        CircleShape,
-                    )
+                    .background(colors.route, CircleShape)
                     .clickableOnce { viewModel.sendDraft() },
                 contentAlignment = Alignment.Center,
             ) {
@@ -255,7 +326,9 @@ private fun ChatScreen(viewModel: ChatViewModel, onBack: () -> Unit) {
 private fun MessageRow(
     message: Message,
     isMine: Boolean,
+    isPlaying: Boolean = false,
     onRetry: () -> Unit,
+    onPlayVoice: () -> Unit = {},
 ) {
     val colors = ConvoyTheme.colors
 
@@ -346,29 +419,61 @@ private fun MessageRow(
                         ),
                     )
                     .then(
-                        if (message.sendState == SendState.FAILED) {
-                            Modifier.clickableOnce(onClick = onRetry)
-                        } else {
-                            Modifier
+                        when {
+                            message.sendState == SendState.FAILED ->
+                                Modifier.clickableOnce(onClick = onRetry)
+                            message.isVoice -> Modifier.clickableOnce(onClick = onPlayVoice)
+                            else -> Modifier
                         }
                     )
                     .padding(horizontal = 14.dp, vertical = 10.dp),
             ) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    if (message.isQuick || message.isCritical) {
-                        Text(text = if (message.isCritical) "⚠ " else "", fontSize = 13.sp)
+                if (message.isVoice) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(11.dp),
+                    ) {
+                        Text(
+                            text = if (isPlaying) "⏸" else "▶",
+                            color = textColor,
+                            fontSize = 17.sp,
+                        )
+                        // A fixed bar rather than a real waveform: drawing
+                        // an accurate one means decoding the clip, and the
+                        // bar's job is only to say "this is audio, this long".
+                        Box(
+                            modifier = Modifier
+                                .width(96.dp)
+                                .height(3.dp)
+                                .background(
+                                    textColor.copy(alpha = if (isPlaying) 0.95f else 0.4f),
+                                    RoundedCornerShape(2.dp),
+                                )
+                        )
+                        Text(
+                            text = Formatters.duration((message.durationMs ?: 0L) / 1000),
+                            color = textColor,
+                            fontSize = 12.5.sp,
+                            fontWeight = FontWeight.Medium,
+                        )
                     }
-                    Text(
-                        text = message.body.orEmpty(),
-                        color = textColor,
-                        fontSize = 14.5.sp,
-                        lineHeight = 20.sp,
-                        fontWeight = if (message.isQuick || message.isCritical) {
-                            FontWeight.SemiBold
-                        } else {
-                            FontWeight.Normal
-                        },
-                    )
+                } else {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        if (message.isQuick || message.isCritical) {
+                            Text(text = if (message.isCritical) "⚠ " else "", fontSize = 13.sp)
+                        }
+                        Text(
+                            text = message.body.orEmpty(),
+                            color = textColor,
+                            fontSize = 14.5.sp,
+                            lineHeight = 20.sp,
+                            fontWeight = if (message.isQuick || message.isCritical) {
+                                FontWeight.SemiBold
+                            } else {
+                                FontWeight.Normal
+                            },
+                        )
+                    }
                 }
             }
 
