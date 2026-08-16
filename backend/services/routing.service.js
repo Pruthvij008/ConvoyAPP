@@ -103,20 +103,114 @@ const decodePolyline = (encoded) => {
   return points;
 };
 
+// Metres per degree of latitude. Longitude shrinks by cos(lat), which is
+// applied where it is used.
+const M_PER_DEGREE = 111_320;
+
 /**
- * A route long enough to cross a state is thousands of points, and no phone
- * needs that to draw a line a few hundred pixels wide. Every Nth point is
- * kept, with the last always included so the line actually reaches the
- * destination rather than stopping just short of it.
+ * How far `p` lies from the straight line between `a` and `b`, in metres.
+ *
+ * A local flat-earth projection is used rather than great-circle maths: over
+ * the length of a single route segment the error is centimetres, and this
+ * runs tens of thousands of times per route.
  */
-const simplify = (points, maxPoints = 800) => {
-  if (points.length <= maxPoints) return points;
-  const step = Math.ceil(points.length / maxPoints);
-  const out = points.filter((_, i) => i % step === 0);
-  const last = points[points.length - 1];
-  if (out[out.length - 1] !== last) out.push(last);
+const perpendicularDistanceM = (p, a, b) => {
+  const kx = Math.cos((a[1] * Math.PI) / 180) * M_PER_DEGREE;
+  const ky = M_PER_DEGREE;
+
+  const px = (p[0] - a[0]) * kx;
+  const py = (p[1] - a[1]) * ky;
+  const bx = (b[0] - a[0]) * kx;
+  const by = (b[1] - a[1]) * ky;
+
+  const lengthSq = bx * bx + by * by;
+  if (lengthSq === 0) return Math.hypot(px, py);
+
+  // Clamped, so a point beyond either end is measured to that end rather
+  // than to an imaginary extension of the segment.
+  const t = Math.max(0, Math.min(1, (px * bx + py * by) / lengthSq));
+  return Math.hypot(px - t * bx, py - t * by);
+};
+
+/**
+ * Ramer–Douglas–Peucker: drop points that lie within `toleranceM` of the
+ * line their neighbours already describe.
+ *
+ * Iterative rather than recursive because a long route is tens of thousands
+ * of points and the recursion depth is not worth risking.
+ */
+const douglasPeucker = (points, toleranceM) => {
+  if (points.length <= 2) return points;
+
+  const keep = new Uint8Array(points.length);
+  keep[0] = 1;
+  keep[points.length - 1] = 1;
+
+  const stack = [[0, points.length - 1]];
+  while (stack.length) {
+    const [first, last] = stack.pop();
+    let furthest = -1;
+    let maxDistance = 0;
+
+    for (let i = first + 1; i < last; i += 1) {
+      const d = perpendicularDistanceM(points[i], points[first], points[last]);
+      if (d > maxDistance) {
+        maxDistance = d;
+        furthest = i;
+      }
+    }
+
+    if (furthest !== -1 && maxDistance > toleranceM) {
+      keep[furthest] = 1;
+      stack.push([first, furthest], [furthest, last]);
+    }
+  }
+
+  return points.filter((_, i) => keep[i]);
+};
+
+/**
+ * Thins a route down to something a phone can draw.
+ *
+ * This used to keep every Nth point, which is the wrong algorithm for a
+ * road. Uniform decimation has no idea which points matter: on a motorway
+ * it discards points that were interchangeable anyway, but through a
+ * hairpin it throws away the apex and joins the two ends — drawing a line
+ * straight across the bend. On the ghat roads this app exists for, that is
+ * most of the route, and it is the second cause of "the line cuts across
+ * everything" after the sparse-polyline one already fixed.
+ *
+ * Douglas–Peucker instead keeps points by how much SHAPE they carry, so
+ * corners survive and straight runs collapse. It also thins harder than
+ * decimation did on the parts that genuinely are straight.
+ *
+ * This is not only cosmetic. `projectOntoRoute` measures convoy gaps along
+ * this geometry, so a flattened hairpin under-reports how far apart two
+ * cars are — on exactly the road where that distance matters most.
+ */
+const simplify = (points, maxPoints = 1500) => {
+  if (!Array.isArray(points) || points.length <= 2) return points;
+
+  // Four metres is under a lane's width: close enough that the line still
+  // reads as following the road at driving zoom.
+  let tolerance = 4;
+  let out = douglasPeucker(points, tolerance);
+
+  // A pathologically twisty route could still exceed the cap. Loosen until
+  // it fits rather than falling back to decimation, so whatever is dropped
+  // is always the least significant point remaining.
+  while (out.length > maxPoints && tolerance < 200) {
+    tolerance *= 2;
+    out = douglasPeucker(points, tolerance);
+  }
+
   return out;
 };
+
+// Exported for the geometry tests, which check that the simplified line
+// stays within a few metres of the road it came from. Underscored because
+// nothing in the app should call it directly.
+exports.__simplify = simplify;
 
 // ── Google Routes ────────────────────────────────────────────────
 const viaGoogle = async (origin, destination) => {
