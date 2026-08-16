@@ -16,6 +16,7 @@ import com.convoy.mobile.network.NetworkResult
 import com.convoy.mobile.network.SocketEvent
 import com.convoy.mobile.network.SocketManager
 import com.convoy.mobile.repository.TripRepository
+import com.convoy.mobile.utility.MyLocation
 import com.convoy.mobile.utility.PrefsManager
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.Job
@@ -35,10 +36,21 @@ class MapViewModel @Inject constructor(
     private val repository: TripRepository,
     private val socketManager: SocketManager,
     private val prefs: PrefsManager,
+    private val myLocation: MyLocation,
 ) : ViewModel() {
 
     private var tripId: String? = null
     private var refreshJob: Job? = null
+
+    /**
+     * Where THIS phone is, according to this phone.
+     *
+     * Everyone else's position has to come over the socket; ours does not,
+     * and routing it through the server cost us up to a full publish
+     * interval of lag on the one dot the user is looking at hardest.
+     */
+    var myFix by mutableStateOf<MyLocation.Fix?>(null)
+        private set
 
     /** Reset on any success — only a sustained refusal ends the trip. */
     private var consecutiveRejections = 0
@@ -128,6 +140,15 @@ class MapViewModel @Inject constructor(
         viewModelScope.launch {
             socketManager.connected.collect { socketConnected = it }
         }
+        // Our own GPS, arriving every couple of seconds while moving rather
+        // than every fifteen. This is what makes our dot keep up with the
+        // car instead of trailing it.
+        viewModelScope.launch {
+            myLocation.fix.collect { fix ->
+                myFix = fix
+                mergeLivePositions()
+            }
+        }
         viewModelScope.launch {
             socketManager.events.collect { event ->
                 when (event) {
@@ -167,10 +188,16 @@ class MapViewModel @Inject constructor(
      */
     fun requestMyRoute(toLat: Double? = null, toLng: Double? = null) {
         val id = trip?.id ?: return
+
+        // Our own GPS first. Routing from the server's idea of where we are
+        // meant directions could begin up to a publish interval back down
+        // the road — far enough, at highway speed, to start the route with a
+        // turn we have already gone past.
+        val mine = myFix
         val position = vehicles.firstOrNull { it.id == myVehicleId }?.position
 
-        val lat = position?.lat
-        val lng = position?.lng
+        val lat = mine?.lat ?: position?.lat
+        val lng = mine?.lng ?: position?.lng
         if (lat == null || lng == null) {
             routeError = "Waiting for your position — directions need to know where you are."
             return
@@ -234,6 +261,7 @@ class MapViewModel @Inject constructor(
             lng = payload.optDouble("lng"),
             speedKmh = payload.optDouble("speedKmh").takeIf { !it.isNaN() },
             heading = payload.optDouble("heading").takeIf { !it.isNaN() },
+            accuracyM = payload.optDouble("accuracyM").takeIf { !it.isNaN() },
             batteryPct = payload.optInt("batteryPct", -1).takeIf { it >= 0 },
             receivedAt = System.currentTimeMillis(),
         )
@@ -252,6 +280,7 @@ class MapViewModel @Inject constructor(
                 lng = position.optDouble("lng"),
                 speedKmh = position.optDouble("speedKmh").takeIf { !it.isNaN() },
                 heading = position.optDouble("heading").takeIf { !it.isNaN() },
+                accuracyM = position.optDouble("accuracyM").takeIf { !it.isNaN() },
                 batteryPct = position.optInt("batteryPct", -1).takeIf { it >= 0 },
                 receivedAt = System.currentTimeMillis(),
             )
@@ -260,23 +289,52 @@ class MapViewModel @Inject constructor(
     }
 
     /**
-     * Overlays socket positions onto the REST-loaded vehicles.
+     * Overlays live positions onto the REST-loaded vehicles.
      *
-     * lastFixAgeSec is recomputed from when WE received the update rather
+     * Two sources, in order of authority. Everyone else's position arrives
+     * over the socket. OUR OWN comes from this phone's GPS and wins over
+     * whatever the socket says about us, because the socket's version of us
+     * is the same fix after a round trip through the server — older by
+     * definition, and never newer.
+     *
+     * lastFixAgeSec is recomputed from when WE learned the position rather
      * than trusting a stored value, so a dot that stops arriving visibly
      * ages instead of sitting there looking live.
      */
     private fun mergeLivePositions() {
-        if (livePositions.isEmpty()) return
+        val mine = myFix
+        if (livePositions.isEmpty() && mine == null) return
         val now = System.currentTimeMillis()
+        val myId = myVehicleId
 
         vehicles = vehicles.map { vehicle ->
+            if (mine != null && myId != null && vehicle.id == myId) {
+                return@map vehicle.copy(
+                    lastKnown = com.convoy.mobile.dataModel.vehicle.LastKnown(
+                        point = com.convoy.mobile.dataModel.common.GeoPoint.of(mine.lat, mine.lng),
+                        heading = mine.headingDeg,
+                        speedKmh = mine.speedKmh,
+                        accuracyM = mine.accuracyM,
+                        // Ours alone is not carried locally — it is the one
+                        // number the phone cannot read about itself here —
+                        // so the socket's last word on it is kept.
+                        batteryPct = livePositions[vehicle.id]?.batteryPct
+                            ?: vehicle.lastKnown?.batteryPct,
+                    ),
+                    lastFixAgeSec = ((now - mine.at) / 1000).toInt(),
+                )
+            }
+
             val live = livePositions[vehicle.id] ?: return@map vehicle
             vehicle.copy(
                 lastKnown = com.convoy.mobile.dataModel.vehicle.LastKnown(
                     point = com.convoy.mobile.dataModel.common.GeoPoint.of(live.lat, live.lng),
                     heading = live.heading,
                     speedKmh = live.speedKmh,
+                    // Was dropped on every socket update, which quietly wiped
+                    // the "±12 m" the map shows when a dot is tapped — the
+                    // one readout that tells a real GPS lock from a guess.
+                    accuracyM = live.accuracyM,
                     batteryPct = live.batteryPct,
                 ),
                 lastFixAgeSec = ((now - live.receivedAt) / 1000).toInt(),
@@ -289,6 +347,7 @@ class MapViewModel @Inject constructor(
         val lng: Double,
         val speedKmh: Double?,
         val heading: Double?,
+        val accuracyM: Double?,
         val batteryPct: Int?,
         val receivedAt: Long,
     )

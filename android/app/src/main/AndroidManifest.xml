@@ -25,6 +25,15 @@
     <!-- Calling a convoy member from an alert. -->
     <uses-permission android:name="android.permission.CALL_PHONE" />
 
+    <!-- Photos on a stop are taken through the phone's own camera app via
+         ACTION_IMAGE_CAPTURE, which needs no CAMERA permission from us —
+         and declaring one would be worse than pointless: an app that
+         declares CAMERA must then have it GRANTED before the capture
+         intent will work at all, so asking for it would add a permission
+         prompt in exchange for nothing. NOT required as a feature either;
+         a passenger's tablet with no camera can still mark stops. -->
+    <uses-feature android:name="android.hardware.camera" android:required="false" />
+
     <!-- NOT required. Plenty of tablets are wifi-only with no GPS chip, and
          they are still perfectly useful in a convoy: a passenger watching
          where everyone is does not need to be tracked themselves. Marking
@@ -130,6 +139,20 @@
                 <action android:name="android.intent.action.BOOT_COMPLETED" />
             </intent-filter>
         </receiver>
+
+        <!-- Hands the camera app a writable content:// URI for a captured
+             stop photo. Not exported, and grants are per-URI and temporary,
+             so nothing here is readable by anything we have not explicitly
+             handed a URI to. -->
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="${applicationId}.fileprovider"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/file_paths" />
+        </provider>
 
         <!-- Chat, Alerts, History and Recap are registered as each is built. -->
 

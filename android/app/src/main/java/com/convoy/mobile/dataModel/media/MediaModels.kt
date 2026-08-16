@@ -31,8 +31,15 @@ data class UploadedMedia(
     @SerializedName("resourceType") val resourceType: String? = null,
     @SerializedName("format") val format: String? = null,
     @SerializedName("bytes") val bytes: Long? = null,
+    // Kept so a photo can be laid out at its real shape before it has
+    // finished loading, instead of the frame jumping when it arrives.
+    // Absent for audio, which has no dimensions.
+    @SerializedName("width") val width: Int? = null,
+    @SerializedName("height") val height: Int? = null,
     @SerializedName("durationS") val durationS: Double? = null,
-)
+) {
+    val isImage: Boolean get() = resourceType == "image"
+}
 
 data class ConfirmRequest(
     @SerializedName("publicId") val publicId: String,

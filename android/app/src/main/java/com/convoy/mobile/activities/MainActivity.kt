@@ -2,6 +2,9 @@ package com.convoy.mobile.activities
 
 import android.content.Intent
 import android.os.Bundle
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.PickVisualMediaRequest
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -45,7 +48,6 @@ import com.convoy.mobile.customControls.ActiveStopCard
 import com.convoy.mobile.customControls.AlertBanner
 import com.convoy.mobile.customControls.SosButton
 import com.convoy.mobile.customControls.SosOverlay
-import com.convoy.mobile.customControls.DangerButton
 import com.convoy.mobile.customControls.MarkerPickerSheet
 import com.convoy.mobile.customControls.NavigationBar
 import com.convoy.mobile.customControls.NavigationFooter
@@ -56,6 +58,8 @@ import com.convoy.mobile.customControls.TopSnackbar
 import com.convoy.mobile.customControls.GhostButton
 import com.convoy.mobile.customControls.PrimaryButton
 import com.convoy.mobile.customControls.StatusDot
+import com.convoy.mobile.customControls.TripControlsButton
+import com.convoy.mobile.customControls.TripControlsSheet
 import com.convoy.mobile.customControls.VehicleRosterRow
 import com.convoy.mobile.customControls.clickableOnce
 import com.convoy.mobile.dataModel.trip.TripStatus
@@ -311,6 +315,17 @@ private fun ActiveTripScreen(
     }
     LaunchedEffect(trip.id) { alertViewModel.bind(trip.id) }
 
+    // Re-fetch the active stops whenever ANY vehicle's status changes, not
+    // just our own. The roster carries a label and an icon; the note and the
+    // photo live on the marker, and without this they would only ever appear
+    // for a stop that happened to be marked before the screen opened.
+    val stopSignature = viewModel.vehicles.joinToString(",") {
+        "${it.id}:${it.currentStatus?.markerId.orEmpty()}"
+    }
+    LaunchedEffect(stopSignature) {
+        if (stopSignature.isNotBlank()) markerViewModel.refreshActiveStop(viewModel.myVehicleId)
+    }
+
     // Which car we're chasing, if any. Held by id rather than by the
     // Vehicle itself so the overlay reads live positions every refresh —
     // a captured object would freeze at the moment it was tapped, which is
@@ -326,10 +341,47 @@ private fun ActiveTripScreen(
     // Bumped to ask the map to frame the whole route.
     var fitRouteKey by remember { mutableStateOf(0) }
 
+    // Pause / End / Leave. A sheet rather than a hidden section of the
+    // roster, reachable from the header and from the roster both.
+    var showTripControls by remember { mutableStateOf(false) }
+
     // Navigation view — tilted, following, turning with you. Entered
     // deliberately from the directions sheet and left deliberately, because
     // it takes over the whole screen and the camera with it.
     var navigating by remember { mutableStateOf(false) }
+
+    // ── Attaching a photo to a stop ─────────────────────────────
+    // Two routes in, because both are real: the flat tyre is in front of
+    // you and wants the camera, the wrong turn you took ten minutes ago is
+    // already in the gallery.
+    val pickPhoto = rememberLauncherForActivityResult(
+        ActivityResultContracts.PickVisualMedia()
+    ) { uri -> uri?.let(markerViewModel::attachPhoto) }
+
+    // Where the camera app will write. Held across the launch because the
+    // TakePicture contract reports only success or failure — the URI we
+    // handed it is the only way back to the bytes.
+    var cameraTarget by remember { mutableStateOf<android.net.Uri?>(null) }
+    val takePhoto = rememberLauncherForActivityResult(
+        ActivityResultContracts.TakePicture()
+    ) { saved ->
+        val target = cameraTarget
+        if (saved && target != null) markerViewModel.attachPhoto(target)
+        cameraTarget = null
+    }
+
+    val onPickPhoto: () -> Unit = {
+        pickPhoto.launch(
+            PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
+        )
+    }
+    val onTakePhoto: () -> Unit = {
+        val target = newCameraTarget(context)
+        if (target != null) {
+            cameraTarget = target
+            takePhoto.launch(target)
+        }
+    }
 
     // A critical alert takes over everything else on screen.
     val critical = alertViewModel.criticalAlert
@@ -527,10 +579,16 @@ private fun ActiveTripScreen(
                         )
                     }
                 }
+                // Right next to the state it changes. Pause and End used to
+                // be reachable only through a line of dim text below the
+                // roster, which on a six-car trip was off the bottom of the
+                // sheet entirely.
+                TripControlsButton(paused = paused) { showTripControls = true }
+                Spacer(Modifier.width(7.dp))
                 CircleIconButton("💬", onChat)
-                Spacer(Modifier.width(8.dp))
+                Spacer(Modifier.width(7.dp))
                 CircleIconButton("👥", onOpenLobby)
-                Spacer(Modifier.width(8.dp))
+                Spacer(Modifier.width(7.dp))
                 CircleIconButton("⚙", onSettings)
             }
 
@@ -577,9 +635,14 @@ private fun ActiveTripScreen(
             SosButton(
                 countdown = alertViewModel.sosCountdown,
                 onStart = {
+                    // Our own GPS first. An emergency raised at the position
+                    // the server last heard about can be a fifteen-second
+                    // drive back down the road from where the car actually
+                    // is — which, for the one alert that has to be right, is
+                    // the one place it must not be.
                     alertViewModel.startSosCountdown(
-                        myVehicle?.position?.lat,
-                        myVehicle?.position?.lng,
+                        viewModel.myFix?.lat ?: myVehicle?.position?.lat,
+                        viewModel.myFix?.lng ?: myVehicle?.position?.lng,
                     )
                 },
                 onCancel = alertViewModel::cancelSosCountdown,
@@ -615,6 +678,12 @@ private fun ActiveTripScreen(
         // appeared, because the sheet was not in the composition at all.
         // Marking a stop is most needed exactly when you are driving.
         if (markerViewModel.pickerOpen) {
+            // Where the stop actually happened. Read from our OWN fix first
+            // — the same reason the dot does — so a stop marked at speed
+            // lands where the car is, not where the server last heard it was.
+            val stopLat = viewModel.myFix?.lat ?: myVehicle?.position?.lat
+            val stopLng = viewModel.myFix?.lng ?: myVehicle?.position?.lng
+
             MarkerPickerSheet(
                 favourites = markerViewModel.favourites,
                 trouble = markerViewModel.trouble,
@@ -626,6 +695,11 @@ private fun ActiveTripScreen(
                 creatingCustom = markerViewModel.creatingCustom,
                 customLabel = markerViewModel.customLabel,
                 customIcon = markerViewModel.customIcon,
+                pendingPhoto = markerViewModel.pendingPhoto,
+                isUploadingPhoto = markerViewModel.isUploadingPhoto,
+                onPickPhoto = onPickPhoto,
+                onTakePhoto = onTakePhoto,
+                onRemovePhoto = markerViewModel::removePhoto,
                 onStartCustom = markerViewModel::startCustom,
                 onCustomLabelChanged = markerViewModel::onCustomLabelChanged,
                 onCustomIconChanged = markerViewModel::onCustomIconChanged,
@@ -633,18 +707,13 @@ private fun ActiveTripScreen(
                 onCancelCustom = markerViewModel::cancelCustom,
                 onNoteChanged = markerViewModel::onNoteChanged,
                 onChoose = { option ->
-                    markerViewModel.choose(
-                        option,
-                        myVehicle?.position?.lat,
-                        myVehicle?.position?.lng,
-                    )
+                    markerViewModel.choose(context, option, stopLat, stopLng)
                 },
+                onAddDetail = markerViewModel::addDetail,
                 onConfirmNote = {
-                    markerViewModel.confirmNote(
-                        myVehicle?.position?.lat,
-                        myVehicle?.position?.lng,
-                    )
+                    markerViewModel.confirmNote(context, stopLat, stopLng)
                 },
+                onCancelDetail = markerViewModel::cancelDetail,
                 onDismiss = markerViewModel::closePicker,
             )
         } else {
@@ -653,6 +722,7 @@ private fun ActiveTripScreen(
                 markerViewModel = markerViewModel,
                 paused = paused,
                 modifier = Modifier.align(Alignment.BottomCenter),
+                onOpenTripControls = { showTripControls = true },
                 onNavigateToDestination = {
                     val d = trip.destination
                     if (d?.lat != null && d.lng != null) {
@@ -696,6 +766,35 @@ private fun ActiveTripScreen(
             },
         )
 
+        if (showTripControls) {
+            // Scrim first, so the sheet reads as modal and a stray tap on
+            // the map behind it cannot fire something else.
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(Color.Black.copy(alpha = 0.45f))
+                    .clickableOnce(haptic = false) { showTripControls = false }
+            )
+            Box(modifier = Modifier.align(Alignment.BottomCenter)) {
+                TripControlsSheet(
+                    tripName = trip.name,
+                    paused = paused,
+                    amHost = viewModel.amHost,
+                    isBusy = viewModel.isLoading,
+                    onPauseToggle = {
+                        viewModel.pauseTrip()
+                        showTripControls = false
+                    },
+                    // Left open on End: the trip finishing is what closes
+                    // this screen, and closing the sheet first would show
+                    // the map for a moment as though nothing had happened.
+                    onEndTrip = viewModel::endTrip,
+                    onLeaveTrip = { viewModel.leaveTrip { showTripControls = false } },
+                    onDismiss = { showTripControls = false },
+                )
+            }
+        }
+
         navTarget?.let { target ->
             // Scrim first, so the sheet reads as modal and a stray tap on
             // the map behind it cannot fire something else.
@@ -714,6 +813,11 @@ private fun ActiveTripScreen(
                 null
             }
 
+            // What they sent with their stop, if anything. This is why a
+            // photo is worth attaching at all — it lands in front of the
+            // person deciding whether to turn round.
+            val theirStop = markerViewModel.stopFor(target.vehicleId)
+
             Box(modifier = Modifier.align(Alignment.BottomCenter)) {
                 NavigationChoiceSheet(
                     target = target,
@@ -722,6 +826,8 @@ private fun ActiveTripScreen(
                     canOfferHelp = target.vehicleId != null &&
                         target.vehicleId != viewModel.myVehicleId,
                     isBusy = viewModel.isRouting,
+                    stopPhotoUrl = theirStop?.media?.firstOrNull { it.isImage }?.url,
+                    stopNote = theirStop?.note,
                     onUseInApp = {
                         viewModel.requestMyRoute(target.lat, target.lng)
                         navigating = true
@@ -781,6 +887,27 @@ private fun ActiveTripScreen(
     }
 }
 
+/**
+ * Somewhere for the camera app to put the photo.
+ *
+ * It has to be a content:// URI from our FileProvider. Handing another app a
+ * file:// path is what FileUriExposedException exists to stop, and the
+ * camera cannot write into our cache directory without the temporary grant
+ * a provider URI carries.
+ */
+private fun newCameraTarget(context: android.content.Context): android.net.Uri? = try {
+    val dir = java.io.File(context.cacheDir, "images").apply { mkdirs() }
+    val file = java.io.File(dir, "capture-${System.currentTimeMillis()}.jpg")
+    androidx.core.content.FileProvider.getUriForFile(
+        context,
+        "${context.packageName}.fileprovider",
+        file,
+    )
+} catch (e: Exception) {
+    android.util.Log.e("MainActivity", "No camera target: ${e.message}")
+    null
+}
+
 /** The translucent pill the header and summary float in, over the map. */
 @Composable
 private fun FloatingBar(
@@ -828,11 +955,11 @@ private fun ConvoySheet(
     markerViewModel: MarkerViewModel,
     paused: Boolean,
     modifier: Modifier = Modifier,
+    onOpenTripControls: () -> Unit,
     onNavigateToDestination: () -> Unit,
     onNavigateToVehicle: (com.convoy.mobile.dataModel.vehicle.Vehicle) -> Unit,
 ) {
     val colors = ConvoyTheme.colors
-    var expanded by remember { mutableStateOf(false) }
     val sheetShape = RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp)
     val trip = viewModel.trip
     val activeStop = markerViewModel.activeStop
@@ -846,11 +973,11 @@ private fun ConvoySheet(
             .navigationBarsPadding()
             .padding(bottom = 14.dp),
     ) {
+        // The grab handle is now decoration only. It used to toggle a
+        // hidden section, which meant the trip could be paused via a
+        // control whose entire affordance was a 4dp grey bar.
         Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .clickableOnce(haptic = false) { expanded = !expanded }
-                .padding(vertical = 12.dp),
+            modifier = Modifier.fillMaxWidth().padding(vertical = 12.dp),
             contentAlignment = Alignment.Center,
         ) {
             Box(
@@ -944,38 +1071,30 @@ private fun ConvoySheet(
 
         } // end of the no-active-stop branch
 
-        if (expanded) {
-            Spacer(Modifier.height(14.dp))
-            Column(modifier = Modifier.padding(horizontal = 20.dp)) {
-                if (viewModel.amHost) {
-                    GhostButton(
-                        text = if (paused) "Resume sharing" else "Pause sharing",
-                        onClick = viewModel::pauseTrip,
-                    )
-                    Spacer(Modifier.height(10.dp))
-                    DangerButton(text = "End trip", onClick = viewModel::endTrip)
-                    Text(
-                        text = "Ending stops sharing for everyone, not just you.",
-                        color = colors.dim,
-                        fontSize = 11.5.sp,
-                        textAlign = TextAlign.Center,
-                        modifier = Modifier.fillMaxWidth().padding(top = 10.dp),
-                    )
-                } else {
-                    GhostButton(text = "Leave trip", onClick = { viewModel.leaveTrip {} })
-                }
-            }
-        } else {
+        // The second way in, for anyone whose eyes are already on the
+        // roster. A real row with a label and a chevron, not the line of
+        // dim grey text that used to sit here saying "Pull up for trip
+        // controls" — which described a drag gesture that was never
+        // implemented, and sat below a list long enough to push it off the
+        // bottom of the sheet on a trip with more than about four cars.
+        Spacer(Modifier.height(14.dp))
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 20.dp)
+                .background(colors.surface2, RoundedCornerShape(14.dp))
+                .clickableOnce(haptic = false, onClick = onOpenTripControls)
+                .padding(horizontal = 16.dp, vertical = 13.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
             Text(
-                text = "Pull up for trip controls",
-                color = colors.dim,
-                fontSize = 11.5.sp,
-                textAlign = TextAlign.Center,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clickableOnce(haptic = false) { expanded = true }
-                    .padding(top = 12.dp),
+                text = if (viewModel.amHost) "Pause or end this trip" else "Leave this trip",
+                color = colors.text,
+                fontSize = 13.5.sp,
+                fontWeight = FontWeight.Medium,
+                modifier = Modifier.weight(1f),
             )
+            Text(text = "›", color = colors.muted, fontSize = 17.sp)
         }
     }
 }

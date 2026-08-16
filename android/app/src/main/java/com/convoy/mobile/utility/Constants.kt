@@ -16,13 +16,53 @@ object Constants {
     const val LOST_AFTER_SEC = 180
 
     // ── Location cadence ────────────────────────────────────────
-    // The radio costs more battery than the GPS chip, so a parked car sends
-    // a heartbeat rather than positions, and a highway cruise does not need
-    // a fix every second.
+    // SENDING a position is what costs battery — it wakes the mobile radio.
+    // ASKING the GPS for one is nearly free once the chip is already
+    // tracking. They are therefore two separate schedules: PING_* is how
+    // often the convoy hears from us, SAMPLE_* is how often we look.
+    //
+    // Collapsing the two is what made your own dot lag fifteen seconds
+    // behind Google's, because your own position was only redrawn when it
+    // came back from the server.
     const val PING_INTERVAL_MOVING_MS = 15_000L
     const val PING_INTERVAL_TIGHT_MS = 5_000L      // approaching a stop, or a gap opening
     const val PING_INTERVAL_STATIONARY_MS = 150_000L
     const val PING_INTERVAL_SAVER_MS = 45_000L
+
+    /**
+     * How often the GPS is read while moving.
+     *
+     * Two seconds is smooth enough that the dot tracks the road rather than
+     * hopping between points on it, and the chip is continuously tracking at
+     * this speed regardless — the phone is not powering the radio up and
+     * down between fixes, so the marginal cost over a fifteen-second
+     * interval is small.
+     */
+    const val SAMPLE_INTERVAL_MOVING_MS = 2_000L
+
+    /**
+     * How often the GPS is read while stopped.
+     *
+     * Not the 150 s publish cadence, because this is also how quickly the
+     * app can notice you have started moving again. At 150 s a car pulling
+     * away from a fuel stop stayed frozen on everyone's map for over two
+     * minutes.
+     */
+    const val SAMPLE_INTERVAL_STATIONARY_MS = 20_000L
+
+    /**
+     * How long a vehicle must stay slow before sampling drops to the
+     * stationary rate.
+     *
+     * Changing the sampling rate tears down and rebuilds the location
+     * request, so it must not follow the speed instantly. In crawling
+     * traffic speed sits either side of the stopped threshold for minutes
+     * on end, and without this delay the request would be rebuilt every
+     * couple of seconds. Speeding back up is immediate — only slowing down
+     * waits.
+     */
+    const val SETTLED_BEFORE_SLOW_SAMPLING_MS = 60_000L
+
     /** Below this the app forces Saver mode and tells the group. */
     const val LOW_BATTERY_FORCE_SAVER_PCT = 20
 
