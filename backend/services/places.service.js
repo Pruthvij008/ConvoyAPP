@@ -123,6 +123,106 @@ const fromNominatim = (json) =>
       };
     });
 
+
+/**
+ * Google Places, used first when configured.
+ *
+ * The gap it closes is precision on NAMED BUSINESSES rather than raw
+ * coverage. Searching "cafe goodluck pune" against OSM returns a road named
+ * after the cafe, a different cafe of a similar name, and a spin-off branch
+ * before the actual place. For a convoy agreeing where to meet, landing on
+ * the right one matters more than having many.
+ *
+ * Text Search rather than Autocomplete: it returns coordinates in the same
+ * call, where autocomplete returns predictions that then need a second
+ * lookup per result to become a point on a map.
+ *
+ * Same arrangement as routing — our own conservative daily ceiling, and a
+ * silent fall back to Photon when it is reached or anything fails. The app
+ * cannot tell which provider answered.
+ */
+const googleBudget = { day: null, used: 0 };
+
+const googleRemaining = () => {
+  const today = new Date().toISOString().slice(0, 10);
+  if (googleBudget.day !== today) {
+    googleBudget.day = today;
+    googleBudget.used = 0;
+  }
+  return config.places.googleDailyBudget - googleBudget.used;
+};
+
+exports.googleUsage = () => ({ ...googleBudget, budget: config.places.googleDailyBudget });
+
+const fromGoogle = (json) =>
+  (json?.places || [])
+    .filter((p) => p?.location)
+    .map((p) => {
+      const name = p.displayName?.text || "Unnamed place";
+      // Google's formattedAddress repeats the name at the front for a
+      // business. Stripping it stops the list reading "Cafe Goodluck ·
+      // Cafe Goodluck, Ferguson College Rd".
+      let description = p.formattedAddress || "";
+      if (description.toLowerCase().startsWith(name.toLowerCase())) {
+        description = description.slice(name.length).replace(/^[,\s]+/, "");
+      }
+      return {
+        name,
+        description: description.split(",").slice(0, 3).join(",").trim(),
+        lat: p.location.latitude,
+        lng: p.location.longitude,
+        kind: p.primaryType || null,
+      };
+    });
+
+const viaGoogle = async (query, near) => {
+  const body = {
+    textQuery: query,
+    maxResultCount: config.places.maxResults,
+  };
+
+  // Bias, not restriction: someone in Pune searching for a Goa beach should
+  // still find it, just below the nearby matches.
+  if (typeof near.lat === "number" && typeof near.lng === "number") {
+    body.locationBias = {
+      circle: {
+        center: { latitude: near.lat, longitude: near.lng },
+        radius: 50000,
+      },
+    };
+  }
+
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), config.places.timeoutMs);
+
+  try {
+    const response = await fetch("https://places.googleapis.com/v1/places:searchText", {
+      method: "POST",
+      signal: controller.signal,
+      headers: {
+        "Content-Type": "application/json",
+        "X-Goog-Api-Key": config.places.googleKey,
+        // Billed and returned by field mask — asking for less is cheaper
+        // and faster. We need a name, an address and a point.
+        "X-Goog-FieldMask":
+          "places.displayName,places.formattedAddress,places.location,places.primaryType",
+      },
+      body: JSON.stringify(body),
+    });
+
+    if (!response.ok) {
+      const text = await response.text().catch(() => "");
+      const err = new Error(`Google Places ${response.status}: ${text.slice(0, 160)}`);
+      err.quotaExhausted = response.status === 429 || response.status === 403;
+      throw err;
+    }
+
+    return fromGoogle(await response.json());
+  } finally {
+    clearTimeout(timer);
+  }
+};
+
 /**
  * Search for a place by name.
  *
@@ -138,6 +238,29 @@ exports.search = async (query, near = {}) => {
   const cacheKey = `s:${q.toLowerCase()}:${lat ? lat.toFixed(1) : ""}:${lng ? lng.toFixed(1) : ""}`;
   const cached = cacheGet(cacheKey);
   if (cached) return cached;
+
+  // Google first when it is configured and inside budget. Its results are
+  // cached under their own key prefix so they are never mixed with OSM
+  // results — the two providers have different terms about retention.
+  if (config.places.googleUsable && googleRemaining() > 0) {
+    try {
+      const results = await viaGoogle(q, near);
+      googleBudget.used += 1;
+      if (results.length > 0) {
+        cacheSet(`g:${cacheKey}`, results);
+        return results;
+      }
+      // An empty Google answer is not a failure — fall through to OSM,
+      // which sometimes knows small local places Google does not.
+    } catch (err) {
+      if (err.quotaExhausted) {
+        googleBudget.used = config.places.googleDailyBudget;
+        console.warn("⚠️  Google Places daily limit reached — using Photon until tomorrow");
+      } else {
+        console.warn(`⚠️  Google Places failed (${err.message}) — falling back to Photon`);
+      }
+    }
+  }
 
   const photonUrl = new URL(`${config.places.photonUrl}/api`);
   photonUrl.searchParams.set("q", q);

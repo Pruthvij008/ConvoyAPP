@@ -138,6 +138,17 @@ module.exports = {
     // self-hosted instance can be pointed at later without a code change,
     // which is what the public instances' usage policies will eventually
     // require at real volume.
+    // Google Places closes a real gap on NAMED BUSINESSES — OSM will find
+    // a road named after a cafe before the cafe itself. Same demo key and
+    // the same rules as routing: development only, daily limit, automatic
+    // fall back to Photon, and the app never learns which answered.
+    googleKey: process.env.GOOGLE_ROUTES_KEY || "",
+    googleEnabled: process.env.GOOGLE_PLACES_ENABLED === "true",
+    googleDailyBudget: parseInt(process.env.GOOGLE_PLACES_DAILY_BUDGET, 10) || 400,
+    get googleUsable() {
+      return !!(this.googleEnabled && this.googleKey);
+    },
+
     photonUrl: process.env.PHOTON_URL || "https://photon.komoot.io",
     nominatimUrl: process.env.NOMINATIM_URL || "https://nominatim.openstreetmap.org",
     // Both providers' policies require an identifying User-Agent naming the
