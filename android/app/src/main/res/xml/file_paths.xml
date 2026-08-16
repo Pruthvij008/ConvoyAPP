@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  What the FileProvider is allowed to hand out.
+
+  Only the cache directory, and only the images subfolder inside it. The
+  camera app needs somewhere to write a full-resolution photo, and a
+  content:// URI from here is the only way to give it one without exposing
+  the app's storage — a file:// URI thrown at another app is what
+  FileUriExposedException exists to stop.
+
+  Cache rather than files/, because a captured photo is scratch: it is
+  shrunk, uploaded and deleted within seconds, and if the process dies
+  first the system is welcome to reclaim it.
+-->
+<paths>
+    <cache-path name="stop_photos" path="images/" />
+</paths>

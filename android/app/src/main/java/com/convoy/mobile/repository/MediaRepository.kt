@@ -12,8 +12,11 @@ import okhttp3.MultipartBody
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.asRequestBody
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import org.json.JSONObject
 import java.io.File
+import java.io.IOException
 import java.util.concurrent.TimeUnit
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -69,11 +72,27 @@ class MediaRepository @Inject constructor(
             return NetworkResult.Error("That clip is too long to send.")
         }
 
+        // Dispatchers.IO is not a nicety here, it is the whole reason uploads
+        // failed. This is called from viewModelScope, which runs on the main
+        // thread, and OkHttp's execute() BLOCKS. Android answers a blocking
+        // network call on the main thread with NetworkOnMainThreadException —
+        // caught below and reported as "check your signal", which sent
+        // everyone looking at their bars for a bug that was never about the
+        // network.
         val publicId = try {
-            uploadDirect(signature.uploadUrl, signature, file)
-        } catch (e: Exception) {
+            withContext(Dispatchers.IO) {
+                uploadDirect(signature.uploadUrl, signature, file)
+            }
+        } catch (e: IOException) {
+            // The one case that genuinely IS the signal.
             Log.e(TAG, "Direct upload failed: ${e.message}")
             return NetworkResult.Error("Couldn't upload that — check your signal.")
+        } catch (e: Exception) {
+            // Anything else is our bug, not the user's connection. Saying
+            // "check your signal" for a programming error is how the real
+            // cause stayed hidden.
+            Log.e(TAG, "Direct upload failed", e)
+            return NetworkResult.Error("Couldn't send that voice note. Try again.")
         } ?: return NetworkResult.Error("The upload didn't complete.")
 
         return when (

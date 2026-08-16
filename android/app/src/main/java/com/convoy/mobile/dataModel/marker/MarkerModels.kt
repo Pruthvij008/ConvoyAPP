@@ -1,6 +1,7 @@
 package com.convoy.mobile.dataModel.marker
 
 import com.convoy.mobile.dataModel.common.GeoPoint
+import com.convoy.mobile.dataModel.media.UploadedMedia
 import com.convoy.mobile.dataModel.trip.TripMarker
 import com.google.gson.annotations.SerializedName
 
@@ -53,6 +54,17 @@ data class Marker(
 
     @SerializedName("note")
     val note: String? = null,
+
+    /**
+     * Photos attached to the stop.
+     *
+     * A picture of the problem says in one glance what a note takes a
+     * paragraph to explain and still gets wrong — "flat tyre" and a photo of
+     * a shredded sidewall are two very different messages to the person
+     * deciding whether to turn back.
+     */
+    @SerializedName("media")
+    val media: List<UploadedMedia>? = null,
 
     @SerializedName("state")
     val state: String = "ACTIVE",
@@ -135,6 +147,17 @@ data class CreateMarkerRequest(
 
     @SerializedName("waitingForGroup")
     val waitingForGroup: Boolean? = null,
+
+    /**
+     * Already-uploaded and already-verified attachments.
+     *
+     * Sent as the confirmed media objects rather than as raw files: the
+     * bytes went straight to Cloudinary and the server checked they landed
+     * in this trip's folder, so by the time a marker references one there is
+     * nothing left to trust.
+     */
+    @SerializedName("media")
+    val media: List<UploadedMedia>? = null,
 )
 
 data class UpdateMarkerRequest(

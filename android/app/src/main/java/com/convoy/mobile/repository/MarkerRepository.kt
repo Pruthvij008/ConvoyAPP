@@ -4,6 +4,7 @@ import android.util.Log
 import com.convoy.mobile.dataModel.marker.CreateMarkerRequest
 import com.convoy.mobile.dataModel.marker.AddMarkerSetRequest
 import com.convoy.mobile.dataModel.marker.Marker
+import com.convoy.mobile.dataModel.media.UploadedMedia
 import com.convoy.mobile.dataModel.trip.TripMarker
 import com.convoy.mobile.dataModel.marker.UpdateMarkerRequest
 import com.convoy.mobile.interfaces.MarkerInterface
@@ -44,6 +45,7 @@ class MarkerRepository @Inject constructor(
         lng: Double?,
         note: String? = null,
         waitingForGroup: Boolean? = null,
+        media: List<UploadedMedia>? = null,
     ): NetworkResult<Marker> {
         Log.d(TAG, "Creating $markerKey stop in $tripId")
         val request = CreateMarkerRequest(
@@ -53,6 +55,7 @@ class MarkerRepository @Inject constructor(
             lng = lng,
             note = note?.trim()?.ifBlank { null },
             waitingForGroup = waitingForGroup,
+            media = media?.takeIf { it.isNotEmpty() },
         )
 
         return when (val r = safeApiCall { markerApi.createMarker(tripId, request) }) {

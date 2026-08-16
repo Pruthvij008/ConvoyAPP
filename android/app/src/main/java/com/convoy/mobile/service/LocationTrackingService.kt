@@ -14,6 +14,7 @@ import com.convoy.mobile.R
 import com.convoy.mobile.activities.MainActivity
 import com.convoy.mobile.network.SocketManager
 import com.convoy.mobile.utility.Constants
+import com.convoy.mobile.utility.MyLocation
 import com.convoy.mobile.utility.PrefsManager
 import com.convoy.mobile.utility.ThemeManager
 import com.google.android.gms.location.FusedLocationProviderClient
@@ -43,9 +44,30 @@ class LocationTrackingService : LifecycleService() {
     @Inject lateinit var prefs: PrefsManager
     @Inject lateinit var socketManager: SocketManager
     @Inject lateinit var themeManager: ThemeManager
+    @Inject lateinit var myLocation: MyLocation
 
     private lateinit var fusedClient: FusedLocationProviderClient
-    private var currentIntervalMs = Constants.PING_INTERVAL_MOVING_MS
+
+    /** How often positions go out over the socket. The battery-expensive one. */
+    private var publishIntervalMs = Constants.PING_INTERVAL_MOVING_MS
+
+    /** How often we ASK the GPS. Deliberately not the same number — see below. */
+    private var sampleIntervalMs = Constants.SAMPLE_INTERVAL_MOVING_MS
+
+    /** When we last sent a position, so publishing can be throttled on its own. */
+    private var lastPublishedAt = 0L
+
+    /**
+     * When the vehicle was last seen genuinely moving.
+     *
+     * Sampling drops to the slow rate only after this has been quiet for a
+     * while, and goes back to fast the instant anything moves. Without that
+     * asymmetry, crawling traffic — where speed sits either side of the
+     * stopped threshold for minutes at a time — would tear the location
+     * request down and rebuild it every couple of seconds.
+     */
+    private var lastMovingAt = System.currentTimeMillis()
+
     private var tripId: String? = null
     private var vehicleId: String? = null
 
@@ -87,7 +109,7 @@ class LocationTrackingService : LifecycleService() {
         startForeground(Constants.NOTIFICATION_ID_TRACKING, buildNotification())
         socketManager.connect(trip)
         primeFirstFix()
-        requestUpdates(currentIntervalMs)
+        requestUpdates(sampleIntervalMs)
 
         // STICKY so Android restarts this if it kills the process mid-trip.
         return START_STICKY
@@ -104,13 +126,23 @@ class LocationTrackingService : LifecycleService() {
     private fun primeFirstFix() {
         try {
             fusedClient.lastLocation.addOnSuccessListener { location ->
-                location?.let { publish(it) }
+                // The CACHED fix, which is free but can be hours old — it is
+                // whatever the last app to ask for a position happened to
+                // get. Worth showing while a real fix is acquired, worthless
+                // and actively misleading if it predates this journey, so it
+                // is only accepted while it is plausibly still true.
+                val ageMs = location?.let { System.currentTimeMillis() - it.time }
+                if (location != null && ageMs != null && ageMs <= MAX_CACHED_FIX_AGE_MS) {
+                    publish(location, force = true)
+                } else if (location != null) {
+                    Log.d(TAG, "Ignored a cached fix ${(ageMs ?: 0) / 1000}s old")
+                }
             }
 
             fusedClient.getCurrentLocation(Priority.PRIORITY_HIGH_ACCURACY, null)
                 .addOnSuccessListener { location ->
                     if (location != null) {
-                        publish(location)
+                        publish(location, force = true)
                     } else {
                         // High accuracy means "use the GPS radio". A wifi-only
                         // tablet has no such radio, so this returns null and
@@ -142,7 +174,7 @@ class LocationTrackingService : LifecycleService() {
             fusedClient.getCurrentLocation(Priority.PRIORITY_BALANCED_POWER_ACCURACY, null)
                 .addOnSuccessListener { location ->
                     if (location != null) {
-                        publish(location)
+                        publish(location, force = true)
                     } else {
                         Log.w(TAG, "No position available from any provider on this device")
                     }
@@ -163,8 +195,18 @@ class LocationTrackingService : LifecycleService() {
      */
     private val worstUsableAccuracyM = 100f
 
-    /** One place that turns an Android Location into an outgoing position. */
-    private fun publish(location: android.location.Location) {
+    /**
+     * One place that turns an Android Location into a position — shown here,
+     * and sometimes sent to everyone else.
+     *
+     * Those are two different questions with two different costs, and
+     * treating them as one is what made your own dot lag. Drawing your own
+     * position is free: the fix is already in this process. Sending it wakes
+     * the mobile radio, which is the single most expensive thing this app
+     * does. So the local update happens on EVERY fix, and the send is
+     * throttled to the cadence the battery rules chose.
+     */
+    private fun publish(location: android.location.Location, force: Boolean = false) {
         // hasAccuracy() is checked first: a fix with no accuracy figure at
         // all cannot be judged, and is trusted rather than discarded.
         if (location.hasAccuracy() && location.accuracy > worstUsableAccuracyM) {
@@ -180,6 +222,26 @@ class LocationTrackingService : LifecycleService() {
         val speedKmh = location.speed * 3.6
         themeManager.updateLocation(location.latitude, location.longitude)
 
+        // Immediately, always. This is the whole fix for the lagging dot:
+        // the map reads this and never waits for the server to hand our own
+        // position back to us.
+        myLocation.update(
+            MyLocation.Fix(
+                lat = location.latitude,
+                lng = location.longitude,
+                speedKmh = speedKmh,
+                headingDeg = location.bearing.toDouble().takeIf { location.hasBearing() },
+                accuracyM = location.accuracy.toDouble().takeIf { location.hasAccuracy() },
+            )
+        )
+
+        val now = System.currentTimeMillis()
+        // `force` is for the first fix of a trip. The convoy is waiting to
+        // see you appear at all, and making them wait out a throttle window
+        // for that is the opposite of what the throttle is for.
+        if (!force && now - lastPublishedAt < publishIntervalMs) return
+        lastPublishedAt = now
+
         socketManager.sendPosition(
             lat = location.latitude,
             lng = location.longitude,
@@ -194,22 +256,56 @@ class LocationTrackingService : LifecycleService() {
     /**
      * The cadence rules, in one place.
      *
-     * A parked car does not need GPS at all — the radio costs more battery
-     * than the GPS chip, so a stationary vehicle sends a heartbeat every few
-     * minutes instead of a position every fifteen seconds.
+     * Two cadences, not one. SENDING is what costs battery — it wakes the
+     * mobile radio — so a parked car still drops to a heartbeat every few
+     * minutes. SAMPLING is nearly free once the GPS chip is already tracking,
+     * so it stays fast enough to draw a moving dot.
+     *
+     * Keeping them equal had a second consequence nobody had noticed: a car
+     * stopped at a long light dropped to the 150-second stationary cadence,
+     * and since that was also the sampling rate, the next fix — and therefore
+     * any chance of noticing the car had moved off — was up to two and a half
+     * minutes away. The dot sat frozen at the junction long after the car had
+     * gone. Sampling on its own schedule is what fixes that.
      */
     private fun adaptCadence(speedKmh: Double) {
         val battery = batteryPercent() ?: 100
-        val target = when {
+        val now = System.currentTimeMillis()
+
+        val moving = speedKmh > Constants.STOPPED_SPEED_KMH
+        if (moving) lastMovingAt = now
+
+        // Publishing follows the instantaneous speed, as it always has: it
+        // is a cheap decision made every fix, and the cost of getting it
+        // briefly wrong is one extra ping.
+        val targetPublish = when {
             battery <= Constants.LOW_BATTERY_FORCE_SAVER_PCT -> Constants.PING_INTERVAL_SAVER_MS
-            speedKmh <= Constants.STOPPED_SPEED_KMH -> Constants.PING_INTERVAL_STATIONARY_MS
-            else -> Constants.PING_INTERVAL_MOVING_MS
+            moving -> Constants.PING_INTERVAL_MOVING_MS
+            else -> Constants.PING_INTERVAL_STATIONARY_MS
         }
 
-        if (target != currentIntervalMs) {
-            Log.d(TAG, "Cadence ${currentIntervalMs}ms → ${target}ms (speed=${speedKmh.toInt()} battery=$battery)")
-            currentIntervalMs = target
-            requestUpdates(target)
+        // Sampling needs hysteresis, because changing it tears down and
+        // rebuilds the location request. Slow down only after a sustained
+        // stop; speed up the instant anything moves.
+        val settled = now - lastMovingAt >= Constants.SETTLED_BEFORE_SLOW_SAMPLING_MS
+        val targetSample = when {
+            // On a dying battery we stop being clever. The dot being smooth
+            // matters less than the phone still being alive at the far end.
+            battery <= Constants.LOW_BATTERY_FORCE_SAVER_PCT -> Constants.PING_INTERVAL_SAVER_MS
+            settled -> Constants.SAMPLE_INTERVAL_STATIONARY_MS
+            else -> Constants.SAMPLE_INTERVAL_MOVING_MS
+        }
+
+        publishIntervalMs = targetPublish
+
+        if (targetSample != sampleIntervalMs) {
+            Log.d(
+                TAG,
+                "Sampling ${sampleIntervalMs}ms → ${targetSample}ms, publishing every " +
+                    "${targetPublish}ms (speed=${speedKmh.toInt()} battery=$battery)",
+            )
+            sampleIntervalMs = targetSample
+            requestUpdates(targetSample)
         }
     }
 
@@ -226,7 +322,14 @@ class LocationTrackingService : LifecycleService() {
             // is only running hard while the convoy is actually moving.
             .setPriority(Priority.PRIORITY_HIGH_ACCURACY)
             .setMinUpdateIntervalMillis(intervalMs / 2)
-            .setMaxUpdateDelayMillis(intervalMs * 2) // lets Android batch wakeups
+            // Batching holds fixes back and hands them over in a burst, which
+            // saves wakeups and is exactly wrong for a dot someone is
+            // watching — it arrives late and then jumps. Allowed only at the
+            // slow sampling rates, where nobody is watching a live dot
+            // anyway and the saved wakeups are the entire point.
+            .setMaxUpdateDelayMillis(
+                if (intervalMs <= Constants.SAMPLE_INTERVAL_MOVING_MS) 0L else intervalMs * 2
+            )
             // Deliberately NOT set to a displacement filter.
             //
             // A GPS fix arrives poor and improves over the following seconds
@@ -289,6 +392,9 @@ class LocationTrackingService : LifecycleService() {
     private fun stopTracking() {
         Log.d(TAG, "Stopping tracking")
         runCatching { fusedClient.removeLocationUpdates(callback) }
+        // Otherwise the last fix of this trip is still sitting in the bus
+        // when the next one opens, and it would be drawn as current.
+        myLocation.clear()
         socketManager.disconnect()
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
             stopForeground(STOP_FOREGROUND_REMOVE)
@@ -306,6 +412,15 @@ class LocationTrackingService : LifecycleService() {
 
     companion object {
         private const val TAG = "LocationService"
+
+        /**
+         * How old the free cached fix may be before it is ignored.
+         *
+         * Two minutes is roughly "since you got in the car". Older than that
+         * and it is likely to be your driveway, drawn confidently on a map
+         * of a road you are already an hour down.
+         */
+        private const val MAX_CACHED_FIX_AGE_MS = 120_000L
 
         fun start(context: Context, tripId: String, vehicleId: String?) {
             val intent = Intent(context, LocationTrackingService::class.java).apply {

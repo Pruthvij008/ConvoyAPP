@@ -18,9 +18,12 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import coil.compose.AsyncImage
 import com.convoy.mobile.ui.theme.ConvoyTheme
 import com.convoy.mobile.ui.theme.SectionLabelStyle
 
@@ -62,6 +65,17 @@ fun NavigationChoiceSheet(
     /** Shown only when the target is a vehicle you could go and help. */
     canOfferHelp: Boolean,
     isBusy: Boolean,
+    /**
+     * A photo they attached to their stop, if there is one.
+     *
+     * This is the payoff for attaching one at all. "Breakdown" tells you
+     * almost nothing; a photo of the car on the hard shoulder with a
+     * shredded tyre tells you whether to pull in behind them or carry on
+     * and send help from the next town.
+     */
+    stopPhotoUrl: String? = null,
+    /** Their own words on the stop, shown with the photo. */
+    stopNote: String? = null,
     onUseInApp: () -> Unit,
     onUseGoogleMaps: () -> Unit,
     onTellThemImComing: () -> Unit,
@@ -107,6 +121,33 @@ fun NavigationChoiceSheet(
             if (subtitle.isNotBlank()) {
                 Spacer(Modifier.height(5.dp))
                 Text(text = subtitle, color = colors.muted, fontSize = 13.5.sp)
+            }
+
+            // What they actually sent, above the navigation choices —
+            // because it may well change which choice you make, or whether
+            // you need to go at all.
+            if (stopPhotoUrl != null || !stopNote.isNullOrBlank()) {
+                Spacer(Modifier.height(14.dp))
+                stopPhotoUrl?.let { url ->
+                    AsyncImage(
+                        model = url,
+                        contentDescription = "The photo they sent with their stop",
+                        contentScale = ContentScale.Crop,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(170.dp)
+                            .clip(RoundedCornerShape(14.dp)),
+                    )
+                }
+                stopNote?.takeIf { it.isNotBlank() }?.let {
+                    Spacer(Modifier.height(9.dp))
+                    Text(
+                        text = "“$it”",
+                        color = colors.muted,
+                        fontSize = 13.5.sp,
+                        lineHeight = 19.sp,
+                    )
+                }
             }
 
             // Said plainly rather than discovered halfway down the road: a

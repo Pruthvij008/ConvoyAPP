@@ -13,6 +13,8 @@ import okhttp3.MultipartBody
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.asRequestBody
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import org.json.JSONObject
 import java.io.File
 import java.util.concurrent.TimeUnit
@@ -44,7 +46,11 @@ class AvatarRepository @Inject constructor(
         // The picker hands back a content:// URI, which is not a file we can
         // read directly. Copying to our own cache is the only reliable way
         // to get bytes across every OEM's picker implementation.
-        val file = copyToCache(context, uri)
+        //
+        // On Dispatchers.IO because this is called from viewModelScope — the
+        // main thread — and reading a picked file there is a StrictMode
+        // violation on the way to being a dropped frame.
+        val file = withContext(Dispatchers.IO) { copyToCache(context, uri) }
             ?: return NetworkResult.Error("Couldn't read that image.")
 
         val signature = when (val r = safeApiCall { userApi.getAvatarSignature() }) {
@@ -58,32 +64,37 @@ class AvatarRepository @Inject constructor(
             return NetworkResult.Error("That photo is too large.")
         }
 
+        // Same reason as MediaRepository: execute() blocks, viewModelScope is
+        // the main thread, and Android throws NetworkOnMainThreadException for
+        // that combination — which this catch reported as a signal problem.
         val publicId = try {
-            val body = MultipartBody.Builder()
-                .setType(MultipartBody.FORM)
-                .addFormDataPart("api_key", signature.apiKey)
-                .addFormDataPart("timestamp", signature.timestamp.toString())
-                .addFormDataPart("signature", signature.signature)
-                .addFormDataPart("folder", signature.folder)
-                .addFormDataPart(
-                    "file",
-                    file.name,
-                    file.asRequestBody("image/*".toMediaTypeOrNull()),
-                )
-                .build()
+            withContext(Dispatchers.IO) {
+                val body = MultipartBody.Builder()
+                    .setType(MultipartBody.FORM)
+                    .addFormDataPart("api_key", signature.apiKey)
+                    .addFormDataPart("timestamp", signature.timestamp.toString())
+                    .addFormDataPart("signature", signature.signature)
+                    .addFormDataPart("folder", signature.folder)
+                    .addFormDataPart(
+                        "file",
+                        file.name,
+                        file.asRequestBody("image/*".toMediaTypeOrNull()),
+                    )
+                    .build()
 
-            uploadClient.newCall(Request.Builder().url(signature.uploadUrl).post(body).build())
-                .execute().use { res ->
-                    val text = res.body?.string().orEmpty()
-                    if (!res.isSuccessful) {
-                        Log.e(TAG, "Cloudinary ${res.code}: ${text.take(180)}")
-                        null
-                    } else {
-                        JSONObject(text).optString("public_id").ifBlank { null }
+                uploadClient.newCall(Request.Builder().url(signature.uploadUrl).post(body).build())
+                    .execute().use { res ->
+                        val text = res.body?.string().orEmpty()
+                        if (!res.isSuccessful) {
+                            Log.e(TAG, "Cloudinary ${res.code}: ${text.take(180)}")
+                            null
+                        } else {
+                            JSONObject(text).optString("public_id").ifBlank { null }
+                        }
                     }
-                }
+            }
         } catch (e: Exception) {
-            Log.e(TAG, "Avatar upload failed: ${e.message}")
+            Log.e(TAG, "Avatar upload failed", e)
             null
         } finally {
             file.delete()

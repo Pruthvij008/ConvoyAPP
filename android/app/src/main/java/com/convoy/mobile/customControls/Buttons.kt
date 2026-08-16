@@ -97,6 +97,10 @@ fun GhostButton(
 fun DangerButton(
     text: String,
     modifier: Modifier = Modifier,
+    // Present for the same reason it is on PrimaryButton: a destructive
+    // action fired twice because the first tap gave no feedback is the one
+    // kind of double-submit that cannot be taken back.
+    enabled: Boolean = true,
     onClick: () -> Unit,
 ) {
     val colors = ConvoyTheme.colors
@@ -105,8 +109,9 @@ fun DangerButton(
         modifier = modifier
             .fillMaxWidth()
             .height(ButtonHeight)
+            .alpha(if (enabled) 1f else 0.45f)
             .background(colors.red, ButtonShape)
-            .clickableOnce(onClick = onClick),
+            .clickableOnce(enabled = enabled, onClick = onClick),
         contentAlignment = Alignment.Center,
     ) {
         Text(
@@ -122,6 +127,7 @@ fun DangerButton(
 fun SecondaryButton(
     text: String,
     modifier: Modifier = Modifier,
+    enabled: Boolean = true,
     onClick: () -> Unit,
 ) {
     val colors = ConvoyTheme.colors
@@ -130,8 +136,9 @@ fun SecondaryButton(
         modifier = modifier
             .fillMaxWidth()
             .height(ButtonHeight)
+            .alpha(if (enabled) 1f else 0.45f)
             .background(colors.surface2, ButtonShape)
-            .clickableOnce(onClick = onClick),
+            .clickableOnce(enabled = enabled, onClick = onClick),
         contentAlignment = Alignment.Center,
     ) {
         Text(
