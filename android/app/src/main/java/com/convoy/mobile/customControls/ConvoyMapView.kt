@@ -183,11 +183,24 @@ fun ConvoyMapView(
                 map.setStyle(Style.Builder().fromUri(styleUrl)) {
                     loadedStyleIsDark[0] = isDark
                     map.uiSettings.apply {
-                        isRotateGesturesEnabled = false   // a rotated map is disorienting at speed
-                        isTiltGesturesEnabled = false
+                        // Rotate and tilt belong to the user. They were off
+                        // on the theory that a spinning map is disorienting
+                        // at speed — but turning the map to match the road
+                        // ahead is a perfectly sensible thing for a
+                        // passenger to do, and removing the gesture just
+                        // makes the map feel broken.
+                        isRotateGesturesEnabled = true
+                        isTiltGesturesEnabled = true
+
+                        // The compass is what makes rotation safe to offer:
+                        // once the map has been turned there must be an
+                        // obvious way back to north. MapLibre shows it only
+                        // while the map is actually rotated.
+                        isCompassEnabled = true
+                        setCompassMargins(0, 340, 44, 0)
+
                         isAttributionEnabled = true        // OSM requires attribution
                         isLogoEnabled = false
-                        setCompassMargins(0, 0, 24, 0)
                     }
 
                     drawAll(
@@ -469,8 +482,14 @@ private fun drawVehicles(
                         status != null && status.waitingForGroup == true ->
                             "Waiting for the group"
                         status != null -> "Stopped · go ahead"
-                        vehicle.freshness == Freshness.LIVE ->
-                            Formatters.speed(vehicle.lastKnown?.speedKmh)
+                        // The accuracy is shown, not just the speed. It is
+                        // the only way to tell a real GPS lock from a cell
+                        // tower guess — single digits mean satellites,
+                        // tens mean the phone is still falling back.
+                        vehicle.freshness == Freshness.LIVE -> listOfNotNull(
+                            Formatters.speed(vehicle.lastKnown?.speedKmh),
+                            vehicle.lastKnown?.accuracyM?.let { "±${it.toInt()} m" },
+                        ).joinToString(" · ")
                         vehicle.freshness == Freshness.STALE ->
                             Formatters.shortAgo(vehicle.lastFixAgeSec)
                         else -> "No signal"

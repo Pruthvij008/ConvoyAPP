@@ -172,6 +172,11 @@ class LocationTrackingService : LifecycleService() {
             return
         }
 
+        // Logged so accuracy can be confirmed on a real drive rather than
+        // guessed at. A good open-sky GPS fix reads single digits; anything
+        // in the tens means the phone is still falling back to wifi or cell.
+        Log.d(TAG, "Fix accuracy: ${if (location.hasAccuracy()) "${location.accuracy.toInt()}m" else "unknown"}")
+
         val speedKmh = location.speed * 3.6
         themeManager.updateLocation(location.latitude, location.longitude)
 
@@ -222,10 +227,15 @@ class LocationTrackingService : LifecycleService() {
             .setPriority(Priority.PRIORITY_HIGH_ACCURACY)
             .setMinUpdateIntervalMillis(intervalMs / 2)
             .setMaxUpdateDelayMillis(intervalMs * 2) // lets Android batch wakeups
-            // A car covers this between fixes at any real speed, so it
-            // costs nothing while moving and suppresses the metre-by-metre
-            // jitter of a stationary GPS.
-            .setMinUpdateDistanceMeters(10f)
+            // Deliberately NOT set to a displacement filter.
+            //
+            // A GPS fix arrives poor and improves over the following seconds
+            // as more satellites lock. Those improvements happen at almost
+            // the same coordinates, so a 10 m displacement filter throws
+            // them away and leaves the first, worst fix on screen. Accuracy
+            // is filtered instead, in publish(), which keeps the good fixes
+            // and discards the vague ones.
+            .setMinUpdateDistanceMeters(0f)
             .build()
 
         try {
