@@ -76,6 +76,11 @@ fun ConvoyMapView(
     navigationMode: Boolean = false,
     /** Whose dot the navigation camera follows. */
     myVehicleId: String? = null,
+    /**
+     * Bumped to hand the camera back to navigation after the user has
+     * dragged it away — what the "re-centre" button does.
+     */
+    recentreKey: Int = 0,
     onVehicleTapped: (Vehicle) -> Unit = {},
 ) {
     val context = LocalContext.current
@@ -104,6 +109,11 @@ fun ConvoyMapView(
     // Which vehicle each drawn marker belongs to. Rebuilt on every draw,
     // because MapLibre assigns fresh marker ids after a clear().
     val markerOwners = remember { mutableMapOf<Long, String>() }
+    // Set when the user drags the map themselves. Navigation stops
+    // following until they ask for it back, because a camera that fights
+    // the finger is worse than one that simply stays put.
+    val userMovedCamera = remember { booleanArrayOf(false) }
+    val appliedRecentre = remember { intArrayOf(0) }
 
     // MapView is a plain Android view with its own lifecycle, and it leaks
     // badly if those callbacks are skipped.
@@ -156,7 +166,18 @@ fun ConvoyMapView(
                     // every position update so the view keeps up with the
                     // car, which is the entire point of the mode.
                     if (navigationMode) {
-                        followForNavigation(map, vehicles, myVehicleId)
+                        // Only re-aim if the user has not taken the camera.
+                        // Re-centring on every position update means any
+                        // attempt to look ahead down the route is undone
+                        // within a second — the map simply refuses to be
+                        // moved, which reads as broken rather than helpful.
+                        if (appliedRecentre[0] != recentreKey) {
+                            appliedRecentre[0] = recentreKey
+                            userMovedCamera[0] = false
+                        }
+                        if (!userMovedCamera[0]) {
+                            followForNavigation(map, vehicles, myVehicleId)
+                        }
                         return@getMapAsync
                     }
 
@@ -201,6 +222,15 @@ fun ConvoyMapView(
 
                         isAttributionEnabled = true        // OSM requires attribution
                         isLogoEnabled = false
+                    }
+
+                    // "Moved by a gesture", specifically — the constant
+                    // REASON_DEVELOPER_ANIMATION would fire on our own
+                    // follow updates and instantly disable following.
+                    map.addOnCameraMoveStartedListener { reason ->
+                        if (reason == MapLibreMap.OnCameraMoveStartedListener.REASON_API_GESTURE) {
+                            userMovedCamera[0] = true
+                        }
                     }
 
                     drawAll(

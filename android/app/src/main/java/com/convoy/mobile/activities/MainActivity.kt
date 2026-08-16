@@ -52,6 +52,7 @@ import com.convoy.mobile.customControls.NavigationFooter
 import com.convoy.mobile.customControls.NavTarget
 import com.convoy.mobile.customControls.NavigationChoiceSheet
 import com.convoy.mobile.customControls.RouteSheet
+import com.convoy.mobile.customControls.TopSnackbar
 import com.convoy.mobile.customControls.GhostButton
 import com.convoy.mobile.customControls.PrimaryButton
 import com.convoy.mobile.customControls.StatusDot
@@ -607,6 +608,12 @@ private fun ActiveTripScreen(
             }
         }
 
+        } // end of the not-navigating branch
+
+        // Rendered OUTSIDE the branch above. Inside it, the picker simply
+        // did not exist while navigating — the button fired and nothing
+        // appeared, because the sheet was not in the composition at all.
+        // Marking a stop is most needed exactly when you are driving.
         if (markerViewModel.pickerOpen) {
             MarkerPickerSheet(
                 favourites = markerViewModel.favourites,
@@ -677,7 +684,17 @@ private fun ActiveTripScreen(
                 },
             )
         }
-        } // end of the not-navigating branch
+
+        // Above everything, including navigation. A failure the user cannot
+        // see is a failure reported to nobody.
+        TopSnackbar(
+            message = viewModel.routeError ?: markerViewModel.errorMessage,
+            modifier = Modifier.align(Alignment.TopCenter),
+            onDismiss = {
+                viewModel.clearRouteError()
+                markerViewModel.dismissError()
+            },
+        )
 
         navTarget?.let { target ->
             // Scrim first, so the sheet reads as modal and a stray tap on

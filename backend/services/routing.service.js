@@ -141,7 +141,13 @@ const viaGoogle = async (origin, destination) => {
         travelMode: "DRIVE",
         // The whole reason Google is here rather than OSRM.
         routingPreference: "TRAFFIC_AWARE",
-        polylineQuality: "OVERVIEW",
+        // HIGH_QUALITY, not OVERVIEW. Overview returns a deliberately
+        // sparse polyline meant for a zoomed-out preview — at driving zoom
+        // it renders as straight lines cutting across streets, because the
+        // points simply are not there. This is the difference between a
+        // line that follows the road and a line that merely ends up in the
+        // right place.
+        polylineQuality: "HIGH_QUALITY",
       }),
     }
   );

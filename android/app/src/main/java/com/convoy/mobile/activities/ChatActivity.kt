@@ -52,6 +52,7 @@ import androidx.compose.ui.platform.LocalContext
 import com.convoy.mobile.utility.Formatters
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.convoy.mobile.customControls.TopSnackbar
 import com.convoy.mobile.customControls.clickableOnce
 import com.convoy.mobile.dataModel.message.Message
 import com.convoy.mobile.dataModel.message.QuickMessage
@@ -134,6 +135,7 @@ private fun ChatScreen(viewModel: ChatViewModel, onBack: () -> Unit) {
         }
     }
 
+    Box(modifier = Modifier.fillMaxSize()) {
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -348,14 +350,16 @@ private fun ChatScreen(viewModel: ChatViewModel, onBack: () -> Unit) {
             }
         }
 
-        viewModel.errorMessage?.let {
-            Text(
-                text = it,
-                color = colors.red,
-                fontSize = 12.5.sp,
-                modifier = Modifier.padding(horizontal = 20.dp, vertical = 6.dp),
-            )
-        }
+        // The error used to sit here, at the very bottom, under the
+        // composer and often under the keyboard — reported where it could
+        // not be read. It is a top snackbar now (see the Box below).
+    }
+
+    TopSnackbar(
+        message = viewModel.errorMessage,
+        modifier = Modifier.align(Alignment.TopCenter),
+        onDismiss = viewModel::dismissError,
+    )
     }
 }
 
