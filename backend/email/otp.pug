@@ -1,0 +1,12 @@
+extends _layout
+
+block content
+  p Hi #{firstName},
+  if isReset
+    p We received a request to reset your password. Use the code below to continue:
+  else
+    p Thanks for signing up. Use the code below to verify your email address:
+  table(role="presentation" cellpadding="0" cellspacing="0" style="margin:24px 0;")
+    tr
+      td(style="background:#111827;color:#ffffff;font-size:30px;font-weight:bold;letter-spacing:8px;padding:16px 28px;border-radius:10px;")= code
+  p(style="color:#6b7280;font-size:13px;") This code expires in #{minutes} minutes. Don't share it with anyone.

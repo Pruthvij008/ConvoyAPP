@@ -1,0 +1,53 @@
+{
+  "name": "convoy-backend",
+  "version": "0.1.0",
+  "description": "Convoy — group ride live-tracking backend (Express + Mongoose + Socket.IO)",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "nodemon server.js",
+    "verify:models": "node scripts/verify-models.js",
+    "verify:trips": "node scripts/verify-trips.js",
+    "verify:sockets": "node scripts/verify-sockets.js",
+    "verify": "npm run verify:models && npm run verify:trips && npm run verify:sockets && npm run verify:markers && npm run verify:alerts && npm run verify:chat",
+    "redis": "D:/redis/redis-server.exe D:/redis/convoy.conf",
+    "verify:markers": "node scripts/verify-markers.js",
+    "verify:alerts": "node scripts/verify-alerts.js",
+    "verify:chat": "node scripts/verify-chat.js"
+  },
+  "keywords": [
+    "convoy",
+    "live-location",
+    "trips",
+    "socket.io",
+    "express"
+  ],
+  "license": "ISC",
+  "dependencies": {
+    "@turf/turf": "^7.1.0",
+    "bcryptjs": "^2.4.3",
+    "cloudinary": "^2.10.0",
+    "cookie-parser": "^1.4.7",
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.7",
+    "express": "^4.21.2",
+    "express-rate-limit": "^7.5.0",
+    "google-auth-library": "^9.15.0",
+    "helmet": "^8.0.0",
+    "html-to-text": "^9.0.5",
+    "ioredis": "^5.4.1",
+    "jsonwebtoken": "^9.0.2",
+    "mongoose": "^8.9.5",
+    "morgan": "^1.10.0",
+    "nanoid": "^3.3.7",
+    "nodemailer": "^6.9.16",
+    "pug": "^3.0.3",
+    "socket.io": "^4.8.1",
+    "validator": "^13.12.0",
+    "zod": "^3.24.1"
+  },
+  "devDependencies": {
+    "nodemon": "^3.1.9",
+    "socket.io-client": "^4.8.3"
+  }
+}

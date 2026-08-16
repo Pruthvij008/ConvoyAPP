@@ -1,0 +1,43 @@
+# ── Secrets ──────────────────────────────────────────────────────
+# Never commit these. config.env holds the JWT secret, the database
+# credentials and API keys — this repo is public.
+config.env
+.env
+.env.*
+!.env.example
+*.pem
+*.keystore
+*.jks
+
+# ── Node ─────────────────────────────────────────────────────────
+node_modules/
+npm-debug.log*
+yarn-error.log*
+*.log
+
+# ── Android / Gradle ─────────────────────────────────────────────
+*.iml
+.gradle/
+build/
+captures/
+.externalNativeBuild/
+.cxx/
+# Machine-specific: SDK path, and the backend URL for this laptop.
+local.properties
+
+# ── IDE ──────────────────────────────────────────────────────────
+.idea/
+*.swp
+.vscode/
+
+# ── Tooling ──────────────────────────────────────────────────────
+# Local agent/editor settings, not part of the project.
+.claude/
+
+# ── OS ───────────────────────────────────────────────────────────
+.DS_Store
+Thumbs.db
+
+# ── Runtime output ───────────────────────────────────────────────
+backend/uploads/*
+!backend/uploads/.gitkeep

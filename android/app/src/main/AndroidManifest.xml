@@ -1,0 +1,130 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+
+    <!-- Foreground location while a trip is running. COARSE is declared
+         alongside FINE because Android 12+ lets the user grant only the
+         approximate one, and the app has to keep working when they do. -->
+    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
+    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
+
+    <!-- Requested separately, and only after the user has seen a trip run.
+         Play Store review requires a prominent disclosure before this. -->
+    <uses-permission android:name="android.permission.ACCESS_BACKGROUND_LOCATION" />
+
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_LOCATION" />
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+
+    <!-- Push-to-talk voice notes. -->
+    <uses-permission android:name="android.permission.RECORD_AUDIO" />
+
+    <!-- Calling a convoy member from an alert. -->
+    <uses-permission android:name="android.permission.CALL_PHONE" />
+
+    <uses-feature android:name="android.hardware.location.gps" android:required="true" />
+
+    <!-- Android 11 hid every other installed app from us unless we declare
+         what we intend to talk to. Without this block `resolveActivity`
+         returns null even when Google Maps IS installed, and the Directions
+         button reports "no maps app found" on a phone that plainly has one.
+         These entries are capability declarations, not a hard dependency —
+         anything that handles a geo: URI still works. -->
+    <queries>
+        <package android:name="com.google.android.apps.maps" />
+        <package android:name="com.waze" />
+
+        <intent>
+            <action android:name="android.intent.action.VIEW" />
+            <data android:scheme="geo" />
+        </intent>
+        <intent>
+            <action android:name="android.intent.action.VIEW" />
+            <data android:scheme="google.navigation" />
+        </intent>
+        <intent>
+            <action android:name="android.intent.action.DIAL" />
+            <data android:scheme="tel" />
+        </intent>
+        <intent>
+            <action android:name="android.intent.action.SEND" />
+            <data android:mimeType="text/plain" />
+        </intent>
+    </queries>
+
+    <application
+        android:name=".ConvoyApplication"
+        android:allowBackup="false"
+        android:icon="@mipmap/ic_launcher"
+        android:label="@string/app_name"
+        android:supportsRtl="true"
+        android:usesCleartextTraffic="true"
+        android:theme="@style/Theme.Convoy">
+
+        <activity
+            android:name=".activities.SplashActivity"
+            android:exported="true"
+            android:theme="@style/Theme.Convoy">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+
+        <activity android:name=".activities.LoginActivity" android:exported="false" />
+
+        <activity
+            android:name=".activities.MainActivity"
+            android:exported="false"
+            android:launchMode="singleTask" />
+
+        <activity android:name=".activities.CreateTripActivity" android:exported="false" />
+        <activity android:name=".activities.LobbyActivity" android:exported="false" />
+        <activity android:name=".activities.SettingsActivity" android:exported="false" />
+        <activity android:name=".activities.ChatActivity" android:exported="false" />
+        <activity android:name=".activities.PickDestinationActivity" android:exported="false" />
+
+        <!-- The shared join link lands here. singleTask so tapping a second
+             link does not stack another copy on top. -->
+        <activity
+            android:name=".activities.JoinTripActivity"
+            android:exported="true"
+            android:launchMode="singleTask">
+            <intent-filter android:autoVerify="true">
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="https" android:host="convoy.app" android:pathPrefix="/j" />
+            </intent-filter>
+            <!-- Custom scheme fallback for links App Links cannot verify:
+                 local development, or a messaging app that mangles https. -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="convoy" android:host="join" />
+            </intent-filter>
+        </activity>
+
+        <!-- Location must keep reporting when the app is not on screen, so
+             it lives in a foreground service rather than any Activity. -->
+        <service
+            android:name=".service.LocationTrackingService"
+            android:foregroundServiceType="location"
+            android:exported="false" />
+
+        <receiver
+            android:name=".service.BootReceiver"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="android.intent.action.BOOT_COMPLETED" />
+            </intent-filter>
+        </receiver>
+
+        <!-- Chat, Alerts, History and Recap are registered as each is built. -->
+
+    </application>
+</manifest>
