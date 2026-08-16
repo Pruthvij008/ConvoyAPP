@@ -26,6 +26,16 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
+import androidx.activity.viewModels
+import androidx.activity.result.PickVisualMediaRequest
+import androidx.activity.result.contract.ActivityResultContracts
+import com.convoy.mobile.viewModels.ProfileViewModel
+import coil.compose.AsyncImage
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.draw.clip
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.layout.width
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.convoy.mobile.customControls.GhostButton
@@ -46,11 +56,35 @@ import dagger.hilt.android.AndroidEntryPoint
 @AndroidEntryPoint
 class SettingsActivity : BaseActivity() {
 
+    private val profileViewModel: ProfileViewModel by viewModels()
+
+    /**
+     * The system photo picker.
+     *
+     * PickVisualMedia rather than a storage permission: it hands back one
+     * image the user chose and nothing else, so the app never asks to read
+     * their whole gallery for a single avatar.
+     */
+    private val pickPhoto = registerForActivityResult(
+        ActivityResultContracts.PickVisualMedia()
+    ) { uri ->
+        if (uri != null) profileViewModel.pickedPhoto(this, uri)
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
         setThemedContent {
             SettingsScreen(
+                photoUrl = profileViewModel.photoUrl,
+                isUploadingPhoto = profileViewModel.isUploading,
+                photoError = profileViewModel.errorMessage,
+                onPickPhoto = {
+                    pickPhoto.launch(
+                        PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
+                    )
+                },
+                onRemovePhoto = profileViewModel::removePhoto,
                 displayName = prefs.displayName.orEmpty(),
                 username = prefs.username.orEmpty(),
                 hasActiveTrip = prefs.activeTripId != null,
@@ -80,6 +114,11 @@ private fun SettingsScreen(
     currentMode: ThemeMode,
     sunsetLabel: String?,
     keepScreenOn: Boolean,
+    photoUrl: String?,
+    isUploadingPhoto: Boolean,
+    photoError: String?,
+    onPickPhoto: () -> Unit,
+    onRemovePhoto: () -> Unit,
     onModeChange: (ThemeMode) -> Unit,
     onKeepScreenOnChange: (Boolean) -> Unit,
     onBack: () -> Unit,
@@ -118,6 +157,81 @@ private fun SettingsScreen(
         SectionLabel("You")
         SurfaceCard(modifier = Modifier.padding(horizontal = 20.dp)) {
             Column(modifier = Modifier.padding(16.dp)) {
+
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    // Optional, and never nagged about. The initial is a
+                    // perfectly good identity in a six-car roster; a photo
+                    // is just quicker to recognise at a glance.
+                    Box(
+                        modifier = Modifier
+                            .size(64.dp)
+                            .background(colors.surface2, CircleShape)
+                            .clickableOnce { onPickPhoto() },
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        if (photoUrl != null) {
+                            AsyncImage(
+                                model = photoUrl,
+                                contentDescription = "Your photo",
+                                contentScale = ContentScale.Crop,
+                                modifier = Modifier.size(64.dp).clip(CircleShape),
+                            )
+                        } else {
+                            Text(
+                                text = displayName.take(1).uppercase().ifBlank { "?" },
+                                color = colors.muted,
+                                fontSize = 24.sp,
+                                fontWeight = FontWeight.Bold,
+                            )
+                        }
+
+                        if (isUploadingPhoto) {
+                            Box(
+                                modifier = Modifier
+                                    .size(64.dp)
+                                    .background(Color.Black.copy(alpha = 0.45f), CircleShape),
+                                contentAlignment = Alignment.Center,
+                            ) {
+                                CircularProgressIndicator(
+                                    color = Color.White,
+                                    strokeWidth = 2.dp,
+                                    modifier = Modifier.size(22.dp),
+                                )
+                            }
+                        }
+                    }
+
+                    Spacer(Modifier.width(16.dp))
+
+                    Column {
+                        Text(
+                            text = if (photoUrl != null) "Change photo" else "Add a photo",
+                            color = colors.route,
+                            fontSize = 14.5.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            modifier = Modifier.clickableOnce { onPickPhoto() },
+                        )
+                        Text(
+                            text = "Optional — helps the group spot you",
+                            color = colors.dim,
+                            fontSize = 12.sp,
+                            modifier = Modifier.padding(top = 2.dp),
+                        )
+                        if (photoUrl != null) {
+                            Text(
+                                text = "Remove",
+                                color = colors.red,
+                                fontSize = 12.5.sp,
+                                modifier = Modifier
+                                    .clickableOnce { onRemovePhoto() }
+                                    .padding(top = 6.dp),
+                            )
+                        }
+                    }
+                }
+
+                Spacer(Modifier.height(16.dp))
+
                 Text(
                     text = displayName.ifBlank { "Not signed in" },
                     color = colors.text,

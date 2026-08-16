@@ -84,7 +84,9 @@ class AuthRepository @Inject constructor(
     suspend fun getMe(): NetworkResult<User> {
         Log.d(TAG, "Fetching current user")
         return when (val result = safeApiCall { authApi.getMe() }) {
-            is NetworkResult.Success -> NetworkResult.Success(result.data.data.user)
+            is NetworkResult.Success ->
+                result.data.data?.user?.let { NetworkResult.Success(it) }
+                    ?: NetworkResult.Error("Couldn't load your account.")
             is NetworkResult.Error -> result
             NetworkResult.Loading -> NetworkResult.Loading
         }

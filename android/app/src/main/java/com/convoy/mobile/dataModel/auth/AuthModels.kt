@@ -70,10 +70,13 @@ data class AuthData(
 
 data class UserResponse(
     @SerializedName("status")
-    val status: String,
+    val status: String = "",
 
+    // Nullable because Gson allocates without running Kotlin constructors:
+    // a response missing this field leaves it null whatever the declared
+    // type says, and a non-null type would crash at the first read.
     @SerializedName("data")
-    val data: AuthData,
+    val data: AuthData? = null,
 )
 
 data class User(

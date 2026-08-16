@@ -25,6 +25,11 @@ object ApiEndpoints {
     const val DEVICE_AUTH = "auth/device"
     const val ME = "users/me"
 
+    // Optional profile photo. Signed, uploaded direct to Cloudinary, then
+    // verified server-side before it can be attached.
+    const val AVATAR_SIGNATURE = "users/me/avatar/signature"
+    const val AVATAR = "users/me/avatar"
+
     // ── Trips ───────────────────────────────────────────────────
     const val TRIPS = "trips"
     const val TRIP_PREVIEW = "trips/preview"

@@ -48,6 +48,15 @@ class PrefsManager @Inject constructor(
         get() = prefs.getString(KEY_USERNAME, null)
         set(value) = prefs.edit().putString(KEY_USERNAME, value).apply()
 
+    /**
+     * The user's own photo, cached so the header and roster can show it
+     * without refetching the user on every screen. Null when they have not
+     * set one, which is the normal case.
+     */
+    var photoUrl: String?
+        get() = prefs.getString(KEY_PHOTO, null)
+        set(value) = prefs.edit().putString(KEY_PHOTO, value).apply()
+
     /** The trip currently being tracked, so a cold start can resume it. */
     var activeTripId: String?
         get() = prefs.getString(KEY_ACTIVE_TRIP, null)
@@ -85,6 +94,7 @@ class PrefsManager @Inject constructor(
         const val KEY_TOKEN = "jwt_token"
         const val KEY_USER_ID = "user_id"
         const val KEY_NAME = "display_name"
+        const val KEY_PHOTO = "photo_url"
         const val KEY_USERNAME = "username"
         const val KEY_ACTIVE_TRIP = "active_trip_id"
         const val KEY_ACTIVE_VEHICLE = "active_vehicle_id"
