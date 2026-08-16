@@ -13,7 +13,29 @@ const config = require("./config/config");
 const app = require("./app");
 
 // DATABASE may contain <db_password>, replaced with DATABASE_PASSWORD.
-const db = config.db.uri.replace("<db_password>", config.db.password);
+//
+// Trimmed and unquoted first. Atlas hands you the string inside a .env
+// line — MONGODB_URI="mongodb+srv://..." — and pasting that into a hosting
+// dashboard carries the quotes into the value, where a .env parser would
+// have stripped them. The driver then rejects it for an "invalid scheme",
+// which points at the URL rather than at the two characters wrapping it.
+const db = String(config.db.uri || "")
+  .trim()
+  .replace(/^["']|["']$/g, "")
+  .replace("<db_password>", config.db.password);
+
+if (!db.startsWith("mongodb://") && !db.startsWith("mongodb+srv://")) {
+  // Named explicitly, because every wrong value — empty, quoted, a whole
+  // env line pasted in — produces the same unhelpful driver error.
+  console.error("❌ DATABASE is not a MongoDB connection string.");
+  console.error(
+    `   Got: ${db ? `"${db.slice(0, 40)}..."` : "(empty — is DATABASE set?)"}`
+  );
+  console.error(
+    '   Expected it to start with "mongodb+srv://", with no surrounding quotes.'
+  );
+  process.exit(1);
+}
 
 mongoose
   .connect(db)
