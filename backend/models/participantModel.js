@@ -75,6 +75,22 @@ const participantSchema = new mongoose.Schema(
       default: "OFFLINE",
     },
 
+    // ── Going to help someone ────────────────────────────────────
+    // Which vehicle this participant has peeled off to reach. Set when they
+    // tap "I'm on the way" and cleared when they arrive or think better of
+    // it. Stored on Participant rather than Vehicle because it is a PERSON'S
+    // intention, and a passenger may well be the one navigating.
+    //
+    // Nullable and single-valued on purpose: you can only be on your way to
+    // one place at a time, and the act of choosing a new one abandons the
+    // last.
+    helpingVehicleId: {
+      type: mongoose.Schema.ObjectId,
+      ref: "Vehicle",
+      default: null,
+    },
+    helpingSince: Date,
+
     // Recorded so a ban survives a reinstall. Imperfect — clearing app data
     // yields a new deviceId — but this is a friends-and-family app, and the
     // host approval queue is the real control (plan §4.8).

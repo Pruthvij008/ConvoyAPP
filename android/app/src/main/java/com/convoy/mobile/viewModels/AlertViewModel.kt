@@ -77,6 +77,21 @@ class AlertViewModel @Inject constructor(
                     // Both arrive as full alert payloads, but refetching keeps
                     // one code path for de-duplication and ordering.
                     is SocketEvent.AlertRaised, is SocketEvent.Sos -> refresh()
+
+                    // Removed locally FIRST, then refetched. Waiting for the
+                    // round trip would leave a full-screen emergency on
+                    // someone's windscreen for another second after it was
+                    // called off, which is exactly when it matters least and
+                    // frightens most.
+                    is SocketEvent.AlertResolved -> {
+                        val resolvedId = event.payload.optString("alertId")
+                        if (resolvedId.isNotBlank()) {
+                            alerts = alerts.filterNot { it.id == resolvedId }
+                        }
+                        refresh()
+                    }
+
+                    is SocketEvent.AlertAcknowledged -> refresh()
                     else -> Unit
                 }
             }

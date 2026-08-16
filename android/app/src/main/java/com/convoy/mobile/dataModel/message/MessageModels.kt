@@ -44,6 +44,21 @@ data class Message(
 
     @SerializedName("createdAt")
     val createdAt: String? = null,
+
+    /** URL of the recorded clip, when kind is VOICE. */
+    @SerializedName("mediaUrl")
+    val mediaUrl: String? = null,
+
+    /**
+     * Local-only delivery state.
+     *
+     * A message is shown the instant it is written, before the server has
+     * confirmed anything — a driver must never be left wondering whether
+     * their "pulling over" went out. Not serialised: the server has no
+     * opinion about a message that has not reached it yet.
+     */
+    @Transient
+    val sendState: SendState = SendState.SENT,
 ) {
     val isQuick: Boolean get() = kind == "QUICK"
     val isVoice: Boolean get() = kind == "VOICE"
@@ -154,3 +169,16 @@ data class QuickMessageData(
     @SerializedName("quickMessages")
     val quickMessages: List<QuickMessage>? = null,
 )
+
+
+/** Where an outgoing message has got to. */
+enum class SendState {
+    /** Written locally, not yet acknowledged by the server. */
+    SENDING,
+
+    /** The server has it. Everyone else will get it.  */
+    SENT,
+
+    /** It did not go. Shown with a retry rather than silently dropped. */
+    FAILED,
+}

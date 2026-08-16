@@ -11,6 +11,8 @@ import com.convoy.mobile.dataModel.message.QuickMessage
 import com.convoy.mobile.network.NetworkResult
 import com.convoy.mobile.network.SocketEvent
 import com.convoy.mobile.network.SocketManager
+import com.convoy.mobile.dataModel.message.SendState
+import com.convoy.mobile.repository.TripRepository
 import com.convoy.mobile.repository.MessageRepository
 import com.convoy.mobile.utility.PrefsManager
 import com.google.gson.Gson
@@ -29,6 +31,7 @@ import javax.inject.Inject
 @HiltViewModel
 class ChatViewModel @Inject constructor(
     private val repository: MessageRepository,
+    private val tripRepository: TripRepository,
     private val socketManager: SocketManager,
     private val prefs: PrefsManager,
     private val gson: Gson,
@@ -58,14 +61,33 @@ class ChatViewModel @Inject constructor(
     var unread by mutableStateOf(0)
         private set
 
-    val myParticipantId: String? get() = prefs.userId
+    /**
+     * MY participant id for this trip.
+     *
+     * Messages carry a PARTICIPANT id, not a user id — the same person is a
+     * different participant in every trip. Comparing against the user id
+     * never matched, which is why every message looked like someone else's.
+     */
+    var myParticipantId by mutableStateOf<String?>(null)
+        private set
 
     fun bind(tripId: String) {
         if (this.tripId == tripId) return
         this.tripId = tripId
+        loadMyIdentity(tripId)
         loadHistory()
         loadQuickMessages()
         observeSocket()
+    }
+
+    private fun loadMyIdentity(tripId: String) {
+        viewModelScope.launch {
+            when (val r = tripRepository.getTrip(tripId)) {
+                is NetworkResult.Success -> myParticipantId = r.data.me.id
+                is NetworkResult.Error -> Log.w(TAG, "Identity fetch failed: ${r.message}")
+                NetworkResult.Loading -> Unit
+            }
+        }
     }
 
     private fun observeSocket() {
@@ -78,11 +100,26 @@ class ChatViewModel @Inject constructor(
                     gson.fromJson(json.toString(), Message::class.java)
                 }.getOrNull() ?: return@collect
 
-                // The sender receives its own message back too, so the list
-                // is de-duplicated by id rather than trusting arrival order.
-                if (messages.none { it.id == message.id }) {
+                if (messages.any { it.id == message.id }) return@collect
+
+                // Our own message echoes back over the socket, and it may
+                // arrive BEFORE the REST call that created it returns. If it
+                // does, it settles the optimistic copy rather than appearing
+                // beside it as a duplicate.
+                val mine = message.senderId != null && message.senderId == myParticipantId
+                val pending = if (mine) {
+                    messages.firstOrNull {
+                        it.sendState == SendState.SENDING && it.body == message.body
+                    }
+                } else {
+                    null
+                }
+
+                if (pending != null) {
+                    replacePending(pending.id, message)
+                } else {
                     messages = messages + message
-                    unread += 1
+                    if (!mine) unread += 1
                 }
             }
         }
@@ -137,16 +174,20 @@ class ChatViewModel @Inject constructor(
         val body = draft.trim()
         if (body.isEmpty()) return
 
+        // Shown before the network is even touched. A driver watching an
+        // empty screen after tapping send has no way to tell "it worked"
+        // from "it did not", and will tap again.
+        val pending = optimistic(kind = "TEXT", body = body)
+        messages = messages + pending
+        draft = ""
+
         viewModelScope.launch {
             isSending = true
-            // Cleared immediately: a driver should never be left wondering
-            // whether their message went, and a failure is reported below.
-            draft = ""
             when (val r = repository.sendText(id, body, lat, lng)) {
-                is NetworkResult.Success -> appendIfNew(r.data)
+                is NetworkResult.Success -> replacePending(pending.id, r.data)
                 is NetworkResult.Error -> {
+                    markFailed(pending.id)
                     errorMessage = r.message
-                    draft = body // hand it back so nothing is lost
                 }
                 NetworkResult.Loading -> Unit
             }
@@ -154,13 +195,84 @@ class ChatViewModel @Inject constructor(
         }
     }
 
+    /**
+     * A message that exists only on this phone until the server confirms it.
+     *
+     * The temporary id is prefixed so it can never collide with a real
+     * ObjectId, and so the de-duplicator can recognise it.
+     */
+    private fun optimistic(
+        kind: String,
+        body: String? = null,
+        quickKey: String? = null,
+        severity: String = "INFO",
+    ) = Message(
+        id = "pending-" + System.nanoTime(),
+        senderId = myParticipantId,
+        senderName = prefs.displayName.orEmpty(),
+        kind = kind,
+        body = body,
+        quickKey = quickKey,
+        severity = severity,
+        createdAt = null,
+        sendState = SendState.SENDING,
+    )
+
+    private fun replacePending(pendingId: String, confirmed: Message) {
+        messages = messages.map { if (it.id == pendingId) confirmed else it }
+            // The socket echoes our own message back, so the confirmed one
+            // can already be here. Keeping both would show it twice.
+            .distinctBy { it.id }
+    }
+
+    private fun markFailed(pendingId: String) {
+        messages = messages.map {
+            if (it.id == pendingId) it.copy(sendState = SendState.FAILED) else it
+        }
+    }
+
+    /** Sends a failed message again, in place. */
+    fun retry(message: Message) {
+        val id = tripId ?: return
+        if (message.sendState != SendState.FAILED) return
+
+        messages = messages.map {
+            if (it.id == message.id) it.copy(sendState = SendState.SENDING) else it
+        }
+
+        viewModelScope.launch {
+            val result = if (message.isQuick && message.quickKey != null) {
+                repository.sendQuick(id, message.quickKey)
+            } else {
+                repository.sendText(id, message.body.orEmpty())
+            }
+            when (result) {
+                is NetworkResult.Success -> replacePending(message.id, result.data)
+                is NetworkResult.Error -> markFailed(message.id)
+                NetworkResult.Loading -> Unit
+            }
+        }
+    }
+
     fun sendQuick(quick: QuickMessage, lat: Double? = null, lng: Double? = null) {
         val id = tripId ?: return
+
+        val pending = optimistic(
+            kind = "QUICK",
+            body = quick.label,
+            quickKey = quick.key,
+            severity = quick.severity,
+        )
+        messages = messages + pending
+
         viewModelScope.launch {
             isSending = true
             when (val r = repository.sendQuick(id, quick.key, lat, lng)) {
-                is NetworkResult.Success -> appendIfNew(r.data)
-                is NetworkResult.Error -> errorMessage = r.message
+                is NetworkResult.Success -> replacePending(pending.id, r.data)
+                is NetworkResult.Error -> {
+                    markFailed(pending.id)
+                    errorMessage = r.message
+                }
                 NetworkResult.Loading -> Unit
             }
             isSending = false

@@ -262,6 +262,16 @@ router.post(
   tripController.getMyRoute
 );
 
+// ── Going to help someone ────────────────────────────────────────
+// Any member may peel off to help — needing permission to rescue a friend
+// with a puncture would be absurd.
+const helpController = require("../controllers/helpController");
+router
+  .route("/:tripId/help")
+  .get(loadTrip, requireParticipant, helpController.listHelpers)
+  .post(loadTrip, requireParticipant, helpController.startHelping)
+  .delete(loadTrip, requireParticipant, helpController.stopHelping);
+
 // ── Media ────────────────────────────────────────────────────────
 router.post(
   "/:tripId/media/signature",

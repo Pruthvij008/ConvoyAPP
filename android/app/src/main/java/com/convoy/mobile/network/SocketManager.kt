@@ -91,6 +91,11 @@ class SocketManager @Inject constructor(
             on(EVENT_MARKER_CLEARED) { args -> emit(SocketEvent.MarkerCleared(args.json())) }
             on(EVENT_ALERT_RAISED) { args -> emit(SocketEvent.AlertRaised(args.json())) }
             on(EVENT_ALERT_SOS) { args -> emit(SocketEvent.Sos(args.json())) }
+            // Without this, an SOS cleared by the person who raised it stays
+            // on screen forever on every OTHER phone — a permanent false
+            // emergency, which is worse than no alert at all.
+            on(EVENT_ALERT_RESOLVED) { args -> emit(SocketEvent.AlertResolved(args.json())) }
+            on(EVENT_ALERT_ACKED) { args -> emit(SocketEvent.AlertAcknowledged(args.json())) }
             on(EVENT_MESSAGE_NEW) { args -> emit(SocketEvent.MessageNew(args.json())) }
             on(EVENT_TRIP_ENDED) { args -> emit(SocketEvent.TripEnded(args.json())) }
             on(EVENT_ROUTE_READY) { args -> emit(SocketEvent.RouteReady(args.json())) }
@@ -169,6 +174,8 @@ class SocketManager @Inject constructor(
         const val EVENT_MARKER_CLEARED = "marker:cleared"
         const val EVENT_ALERT_RAISED = "alert:raised"
         const val EVENT_ALERT_SOS = "alert:sos"
+        const val EVENT_ALERT_RESOLVED = "alert:resolved"
+        const val EVENT_ALERT_ACKED = "alert:acknowledged"
         const val EVENT_MESSAGE_NEW = "message:new"
         const val EVENT_TRIP_ENDED = "trip:ended"
         // Sent when the host starts the trip and the server has the route.
@@ -185,6 +192,8 @@ sealed class SocketEvent {
     data class MarkerCleared(val payload: JSONObject) : SocketEvent()
     data class AlertRaised(val payload: JSONObject) : SocketEvent()
     data class Sos(val payload: JSONObject) : SocketEvent()
+    data class AlertResolved(val payload: JSONObject) : SocketEvent()
+    data class AlertAcknowledged(val payload: JSONObject) : SocketEvent()
     data class MessageNew(val payload: JSONObject) : SocketEvent()
     data class TripEnded(val payload: JSONObject) : SocketEvent()
     data class RouteReady(val payload: JSONObject) : SocketEvent()

@@ -35,6 +35,9 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.foundation.layout.widthIn
+import com.convoy.mobile.dataModel.message.SendState
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.convoy.mobile.customControls.clickableOnce
@@ -156,6 +159,7 @@ private fun ChatScreen(viewModel: ChatViewModel, onBack: () -> Unit) {
                         message = message,
                         isMine = message.senderId != null &&
                             message.senderId == viewModel.myParticipantId,
+                        onRetry = { viewModel.retry(message) },
                     )
                 }
             }
@@ -235,62 +239,142 @@ private fun ChatScreen(viewModel: ChatViewModel, onBack: () -> Unit) {
 }
 
 @Composable
-private fun MessageRow(message: Message, isMine: Boolean) {
+private fun MessageRow(
+    message: Message,
+    isMine: Boolean,
+    onRetry: () -> Unit,
+) {
     val colors = ConvoyTheme.colors
 
-    Column(
-        modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 5.dp),
-        horizontalAlignment = if (isMine) Alignment.End else Alignment.Start,
-    ) {
-        Text(
-            text = if (isMine) {
-                // Only shown on your own messages: "read by 4" matters when
-                // you have just told everyone to pull over, and is noise on
-                // someone else's reply.
-                if (message.readCount > 0) "You · read by ${message.readCount}" else "You"
-            } else {
-                message.senderName
-            },
-            color = colors.dim,
-            fontSize = 11.5.sp,
-            modifier = Modifier.padding(bottom = 3.dp),
-        )
-
-        val bubbleColor = when {
-            message.isCritical -> colors.red.copy(alpha = 0.18f)
-            message.isQuick -> colors.amber.copy(alpha = 0.15f)
-            isMine -> colors.route.copy(alpha = 0.16f)
-            else -> colors.surface2
-        }
-        val textColor = when {
-            message.isCritical -> colors.red
-            message.isQuick -> colors.amber
-            else -> colors.text
-        }
-
+    // A system line ("Pruthvij is on the way") is about the trip, not from a
+    // person. Centred and quiet, so it reads as an event rather than as
+    // someone talking.
+    if (message.isSystem) {
         Box(
-            modifier = Modifier
-                .background(
-                    bubbleColor,
-                    if (isMine) {
-                        RoundedCornerShape(16.dp, 4.dp, 16.dp, 16.dp)
-                    } else {
-                        RoundedCornerShape(4.dp, 16.dp, 16.dp, 16.dp)
-                    },
-                )
-                .padding(horizontal = 14.dp, vertical = 10.dp),
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 40.dp, vertical = 8.dp),
+            contentAlignment = Alignment.Center,
         ) {
             Text(
                 text = message.body.orEmpty(),
-                color = textColor,
-                fontSize = 14.5.sp,
-                lineHeight = 20.sp,
-                fontWeight = if (message.isQuick || message.isCritical) {
-                    FontWeight.SemiBold
-                } else {
-                    FontWeight.Normal
-                },
+                color = colors.dim,
+                fontSize = 12.sp,
+                lineHeight = 17.sp,
+                textAlign = TextAlign.Center,
             )
+        }
+        return
+    }
+
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 3.dp),
+        horizontalArrangement = if (isMine) Arrangement.End else Arrangement.Start,
+        verticalAlignment = Alignment.Bottom,
+    ) {
+        // Someone else's messages carry an initial. Yours do not — you know
+        // who you are, and the avatar column would only cost width.
+        if (!isMine) {
+            Box(
+                modifier = Modifier
+                    .size(30.dp)
+                    .background(colors.surface2, CircleShape),
+                contentAlignment = Alignment.Center,
+            ) {
+                Text(
+                    text = message.senderName.take(1).uppercase(),
+                    color = colors.muted,
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.Bold,
+                )
+            }
+            Spacer(Modifier.width(8.dp))
+        }
+
+        Column(
+            modifier = Modifier.widthIn(max = 290.dp),
+            horizontalAlignment = if (isMine) Alignment.End else Alignment.Start,
+        ) {
+            if (!isMine) {
+                Text(
+                    text = message.senderName,
+                    color = colors.dim,
+                    fontSize = 11.5.sp,
+                    modifier = Modifier.padding(start = 4.dp, bottom = 3.dp),
+                )
+            }
+
+            val bubbleColor = when {
+                message.isCritical -> colors.red
+                message.isQuick && isMine -> colors.route
+                message.isQuick -> colors.amber.copy(alpha = 0.18f)
+                isMine -> colors.route
+                else -> colors.surface2
+            }
+            // Mine are solid, so the two sides read apart at a glance even
+            // in sunlight — colour alone is not enough on a phone on a
+            // dashboard.
+            val textColor = when {
+                message.isCritical -> Color.White
+                isMine -> if (colors.isDark) Color(0xFF04221E) else Color.White
+                message.isQuick -> colors.amber
+                else -> colors.text
+            }
+
+            Box(
+                modifier = Modifier
+                    .background(
+                        bubbleColor,
+                        RoundedCornerShape(
+                            topStart = 18.dp,
+                            topEnd = 18.dp,
+                            bottomStart = if (isMine) 18.dp else 5.dp,
+                            bottomEnd = if (isMine) 5.dp else 18.dp,
+                        ),
+                    )
+                    .then(
+                        if (message.sendState == SendState.FAILED) {
+                            Modifier.clickableOnce(onClick = onRetry)
+                        } else {
+                            Modifier
+                        }
+                    )
+                    .padding(horizontal = 14.dp, vertical = 10.dp),
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    if (message.isQuick || message.isCritical) {
+                        Text(text = if (message.isCritical) "⚠ " else "", fontSize = 13.sp)
+                    }
+                    Text(
+                        text = message.body.orEmpty(),
+                        color = textColor,
+                        fontSize = 14.5.sp,
+                        lineHeight = 20.sp,
+                        fontWeight = if (message.isQuick || message.isCritical) {
+                            FontWeight.SemiBold
+                        } else {
+                            FontWeight.Normal
+                        },
+                    )
+                }
+            }
+
+            // The receipt line, on your own messages only. "Read by 4"
+            // matters when you have just told everyone to pull over, and is
+            // noise under someone else's reply.
+            if (isMine) {
+                Text(
+                    text = when (message.sendState) {
+                        SendState.SENDING -> "Sending…"
+                        SendState.FAILED -> "Didn't send · tap to retry"
+                        SendState.SENT ->
+                            if (message.readCount > 0) "Read by ${message.readCount}" else "Sent"
+                    },
+                    color = if (message.sendState == SendState.FAILED) colors.red else colors.dim,
+                    fontSize = 10.5.sp,
+                    modifier = Modifier.padding(top = 3.dp, end = 4.dp),
+                )
+            }
         }
     }
 }
