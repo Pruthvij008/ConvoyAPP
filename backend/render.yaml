@@ -1,0 +1,74 @@
+# Render blueprint for the Convoy backend.
+#
+# Two services: the Node app and a Redis-compatible key-value store.
+# MongoDB is NOT here — Render has no managed MongoDB, so the database
+# lives on MongoDB Atlas and arrives through DATABASE.
+#
+# WebSockets matter more than they look here. Socket.IO holds a persistent
+# connection, and Render counts WebSocket messages as traffic for its idle
+# timer — so during a live trip the service never spins down. The 15-minute
+# sleep only bites the first person to open the app after a quiet spell.
+
+services:
+  - type: web
+    name: convoy-api
+    runtime: node
+    plan: free
+    region: singapore # closest Render region to India — every ping crosses it
+    branch: hosting
+    rootDir: backend
+    buildCommand: npm ci --omit=dev
+    startCommand: node server.js
+    healthCheckPath: /api/v1/health
+
+    envVars:
+      - key: NODE_ENV
+        value: production
+
+      # Render injects PORT and expects the app to bind it. config.js already
+      # reads process.env.PORT, so nothing else is needed.
+      - key: PORT
+        value: 10000
+
+      # ── Secrets: set these in the Render dashboard, never here ──
+      # sync: false means "prompt me, do not store in git".
+      - key: DATABASE
+        sync: false # MongoDB Atlas connection string
+      - key: JWT_SECRET
+        sync: false # generate a NEW one for production
+      - key: CLOUDINARY_CLOUD_NAME
+        sync: false
+      - key: CLOUDINARY_API_KEY
+        sync: false
+      - key: CLOUDINARY_API_SECRET
+        sync: false
+      - key: GOOGLE_ROUTES_KEY
+        sync: false
+
+      # ── Redis, wired automatically from the service below ──
+      - key: REDIS_URL
+        fromService:
+          name: convoy-redis
+          type: redis
+          property: connectionString
+
+      # ── Everything else has a safe default ──
+      - key: CLOUDINARY_FOLDER
+        value: convoy-app
+      - key: GOOGLE_ROUTES_ENABLED
+        value: "true"
+      - key: GOOGLE_PLACES_ENABLED
+        value: "true"
+      - key: JWT_EXPIRESIN
+        value: 90d
+
+  - type: redis
+    name: convoy-redis
+    plan: free
+    region: singapore
+    # Free Render key-value is in-memory only, with no persistence. That is
+    # fine here BY DESIGN: Redis holds live positions and MongoDB is the
+    # durable store, so a restart costs at most one ping's worth of state,
+    # which the next position update replaces anyway.
+    maxmemoryPolicy: allkeys-lru
+    ipAllowList: [] # reachable only from inside Render

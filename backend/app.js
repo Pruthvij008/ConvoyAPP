@@ -24,6 +24,16 @@ app.use(helmet());
 
 if (config.env === "development") app.use(morgan("dev"));
 
+// Behind a hosting proxy (Render, Railway, any load balancer) every request
+// arrives from the proxy's address. Without this, express-rate-limit sees
+// ONE ip for the entire user base and the join limiter would lock out a
+// whole convoy the moment one person retried — while a real attacker,
+// equally pooled, would be indistinguishable.
+//
+// 1 = trust exactly one hop. Trusting all hops lets a client forge
+// X-Forwarded-For and pick its own rate-limit bucket.
+app.set("trust proxy", 1);
+
 // CORS: reflect the request origin so cookies work with credentials.
 app.use(
   cors({
