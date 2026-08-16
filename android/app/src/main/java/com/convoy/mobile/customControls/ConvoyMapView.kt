@@ -16,6 +16,7 @@ import com.convoy.mobile.dataModel.vehicle.Vehicle
 import com.convoy.mobile.ui.theme.ConvoyTheme
 import com.convoy.mobile.utility.Constants
 import com.convoy.mobile.utility.Formatters
+import com.convoy.mobile.utility.Geo
 import org.maplibre.android.MapLibre
 import org.maplibre.android.annotations.IconFactory
 import org.maplibre.android.annotations.MarkerOptions
@@ -89,6 +90,9 @@ fun ConvoyMapView(
     // any deliberate camera move (like framing the route) is undone by the
     // next refresh. Follow mode is the one case that should keep tracking.
     val hasAutoFramed = remember { booleanArrayOf(false) }
+    // Which vehicle each drawn marker belongs to. Rebuilt on every draw,
+    // because MapLibre assigns fresh marker ids after a clear().
+    val markerOwners = remember { mutableMapOf<Long, String>() }
 
     // MapView is a plain Android view with its own lifecycle, and it leaks
     // badly if those callbacks are skipped.
@@ -111,13 +115,29 @@ fun ConvoyMapView(
                 mapRef[0] = map
                 val palette = colors.vehicles.map { it.toArgb() }
 
+                // Returning true suppresses MapLibre's built-in info window,
+                // which is an unstyled white box we have no control over.
+                // The tap is handed to the app so it can show a real sheet.
+                map.setOnMarkerClickListener { marker ->
+                    val vehicleId = markerOwners[marker.id]
+                    val vehicle = vehicleId?.let { id -> vehicles.firstOrNull { it.id == id } }
+                    if (vehicle != null) {
+                        onVehicleTapped(vehicle)
+                        true
+                    } else {
+                        // Not a vehicle (the destination flag, a place pin) —
+                        // let the default behaviour handle it.
+                        false
+                    }
+                }
+
                 if (loadedStyleIsDark[0] == isDark && map.style?.isFullyLoaded == true) {
                     // Style is already right — just move the dots. This is the
                     // path taken on every position update.
                     drawAll(
                         view.context, map, vehicles, palette, isDark,
                         destinationLat, destinationLng, destinationLabel, stops,
-                        routePoints, colors.route.toArgb(),
+                        routePoints, colors.route.toArgb(), markerOwners,
                     )
                     // An explicit "show me the route" always wins.
                     if (appliedFitRoute[0] != fitRouteKey) {
@@ -152,7 +172,7 @@ fun ConvoyMapView(
                     drawAll(
                         view.context, map, vehicles, palette, isDark,
                         destinationLat, destinationLng, destinationLabel, stops,
-                        routePoints, colors.route.toArgb(),
+                        routePoints, colors.route.toArgb(), markerOwners,
                     )
                     // First frame after a style load: position the camera
                     // regardless, since the map has just been rebuilt.
@@ -194,21 +214,39 @@ private fun drawAll(
     stops: List<MapStop>,
     routePoints: List<Pair<Double, Double>>,
     routeColor: Int,
+    markerOwners: MutableMap<Long, String>,
 ) {
     map.clear()
+    markerOwners.clear()
     val icons = IconFactory.getInstance(context)
 
     // The route goes down first so every pin and every vehicle dot draws on
     // top of it. A line painted over a car would hide the one thing on this
     // screen the user is actually looking for.
     if (routePoints.size >= 2) {
+        val line = routePoints.map { LatLng(it.first, it.second) }
+
+        // Two passes: a dark casing underneath, then the route on top. This
+        // is how every serious map draws a route, and the reason is
+        // practical rather than decorative — a single flat line disappears
+        // over roads of a similar colour, which is exactly where you most
+        // need to see it.
         map.addPolyline(
             PolylineOptions()
-                .addAll(routePoints.map { LatLng(it.first, it.second) })
-                .color(routeColor)
-                .alpha(0.75f)
-                .width(5f)
+                .addAll(line)
+                .color(if (isDark) 0xFF04211D.toInt() else 0xFF0B3B33.toInt())
+                .alpha(0.55f)
+                .width(9f)
         )
+        map.addPolyline(
+            PolylineOptions()
+                .addAll(line)
+                .color(routeColor)
+                .alpha(0.95f)
+                .width(5.5f)
+        )
+
+        drawRouteArrows(context, map, routePoints, isDark)
     }
 
     // Destination first, so a vehicle dot always draws on top of it.
@@ -235,7 +273,78 @@ private fun drawAll(
         )
     }
 
-    drawVehicles(context, map, vehicles, palette, isDark)
+    drawVehicles(context, map, vehicles, palette, isDark, markerOwners)
+}
+
+/**
+ * Direction arrows along the route.
+ *
+ * Without them a line is ambiguous — it says where the road goes but not
+ * which way along it you are meant to travel, which matters at exactly the
+ * moment a junction offers two ways onto the same road.
+ *
+ * Spaced by INDEX rather than by distance: the server already simplified
+ * the route to evenly-ish spaced points, and measuring true distance for
+ * every segment would cost far more than it improves the spacing.
+ */
+private fun drawRouteArrows(
+    context: android.content.Context,
+    map: MapLibreMap,
+    routePoints: List<Pair<Double, Double>>,
+    isDark: Boolean,
+) {
+    if (routePoints.size < 8) return
+
+    val icons = IconFactory.getInstance(context)
+    // About a dozen arrows whatever the route's length. A 500 km route with
+    // an arrow every few points would be a solid line of chevrons.
+    val step = (routePoints.size / 12).coerceAtLeast(3)
+
+    var i = step
+    while (i < routePoints.size - 1) {
+        val (lat, lng) = routePoints[i]
+        val (nextLat, nextLng) = routePoints[i + 1]
+
+        val bearing = Geo.bearingDegrees(lat, lng, nextLat, nextLng)
+
+        map.addMarker(
+            MarkerOptions()
+                .position(LatLng(lat, lng))
+                .icon(icons.fromBitmap(arrowBitmap(bearing, isDark)))
+        )
+        i += step
+    }
+}
+
+/** A single chevron, rotated to point along the route. */
+private fun arrowBitmap(bearingDeg: Float, isDark: Boolean): Bitmap {
+    val size = 52
+    val bitmap = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888)
+    val canvas = Canvas(bitmap)
+    val centre = size / 2f
+
+    canvas.save()
+    // The chevron is drawn pointing up, then the whole canvas is turned to
+    // the compass bearing — far simpler than computing rotated vertices.
+    canvas.rotate(bearingDeg, centre, centre)
+
+    val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        style = Paint.Style.STROKE
+        strokeWidth = 5f
+        strokeCap = Paint.Cap.ROUND
+        strokeJoin = Paint.Join.ROUND
+        color = if (isDark) 0xFFEAFBF6.toInt() else 0xFFFFFFFF.toInt()
+    }
+
+    val path = android.graphics.Path().apply {
+        moveTo(centre - 9f, centre + 6f)
+        lineTo(centre, centre - 6f)
+        lineTo(centre + 9f, centre + 6f)
+    }
+    canvas.drawPath(path, paint)
+    canvas.restore()
+
+    return bitmap
 }
 
 /** A pin carrying an emoji — used for stops and the destination. */
@@ -275,6 +384,7 @@ private fun drawVehicles(
     vehicles: List<Vehicle>,
     palette: List<Int>,
     isDark: Boolean,
+    markerOwners: MutableMap<Long, String>,
 ) {
     val icons = IconFactory.getInstance(context)
 
@@ -297,11 +407,18 @@ private fun drawVehicles(
         // a second marker there would be painted over by the dot and never
         // seen. The badge sits above and to the right, clear of the dot.
         val status = vehicle.currentStatus
+        // The cone is only drawn when the car is actually MOVING. A parked
+        // car's reported bearing is meaningless noise, and a beam swinging
+        // around a stationary dot reads as a fault.
+        val heading = vehicle.lastKnown
+            ?.takeIf { (it.speedKmh ?: 0.0) >= 3.0 }
+            ?.heading
+            ?.toFloat()
         val icon = icons.fromBitmap(
-            vehicleBitmap(color, vehicle.freshness, isDark, status?.icon)
+            vehicleBitmap(color, vehicle.freshness, isDark, status?.icon, heading)
         )
 
-        map.addMarker(
+        val drawn = map.addMarker(
             MarkerOptions()
                 .position(LatLng(lat, lng))
                 // Tapping the dot answers "why has he stopped?" — the whole
@@ -324,6 +441,7 @@ private fun drawVehicles(
                 )
                 .icon(icon)
         )
+        markerOwners[drawn.id] = vehicle.id
     }
 }
 
@@ -333,10 +451,14 @@ private fun vehicleBitmap(
     freshness: Freshness,
     isDark: Boolean,
     statusGlyph: String? = null,
+    /** Compass bearing, or null when stopped. Drives the direction cone. */
+    headingDeg: Float? = null,
 ): Bitmap {
     // Wider than the dot needs, to leave room for a status badge without
     // the glyph being clipped at the edge of the bitmap.
-    val size = if (statusGlyph != null) 120 else 84
+    // Room for whichever extras this dot carries: a status badge up-right,
+    // a heading cone above. Sized once so the dot never shifts position.
+    val size = if (statusGlyph != null || headingDeg != null) 130 else 84
     val bitmap = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888)
     val canvas = Canvas(bitmap)
     // The DOT stays centred on the vehicle's real position even when the
@@ -346,6 +468,36 @@ private fun vehicleBitmap(
 
     val paint = Paint(Paint.ANTI_ALIAS_FLAG)
     val outline = if (isDark) 0xFF0E1514.toInt() else 0xFFFFFFFF.toInt()
+
+    // The direction cone, drawn FIRST so the dot sits on top of its narrow
+    // end. Same idea as the beam Google Maps puts on your own location: it
+    // answers "which way am I pointing", which a plain dot cannot.
+    if (headingDeg != null) {
+        canvas.save()
+        canvas.rotate(headingDeg, centre, centre)
+
+        val cone = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            style = Paint.Style.FILL
+            shader = android.graphics.LinearGradient(
+                centre, centre - 40f, centre, centre,
+                // Fades out at the far end, so it reads as a direction
+                // rather than as a solid object on the road.
+                (color and 0x00FFFFFF) or 0x00000000,
+                (color and 0x00FFFFFF) or 0x99000000.toInt(),
+                android.graphics.Shader.TileMode.CLAMP,
+            )
+        }
+        val path = android.graphics.Path().apply {
+            moveTo(centre, centre)
+            lineTo(centre - 20f, centre - 40f)
+            // A curved far edge rather than a flat one — a triangle looks
+            // like an arrow pointing AT something, a cone like a field of view.
+            quadTo(centre, centre - 52f, centre + 20f, centre - 40f)
+            close()
+        }
+        canvas.drawPath(path, cone)
+        canvas.restore()
+    }
 
     // Halo — wider and fainter as the fix ages.
     paint.color = color

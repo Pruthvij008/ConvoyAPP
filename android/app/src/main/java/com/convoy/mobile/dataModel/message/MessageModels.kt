@@ -54,12 +54,19 @@ data class Message(
      *
      * A message is shown the instant it is written, before the server has
      * confirmed anything — a driver must never be left wondering whether
-     * their "pulling over" went out. Not serialised: the server has no
-     * opinion about a message that has not reached it yet.
+     * their "pulling over" went out.
+     *
+     * NULLABLE deliberately, and read through [sendState] below. Gson
+     * allocates objects without running Kotlin constructors, so this stays
+     * null on anything parsed from the network however the default is
+     * written — and a non-null type would then crash the first time it was
+     * touched. Anything off the wire has, by definition, been sent.
      */
     @Transient
-    val sendState: SendState = SendState.SENT,
+    val sendStateOrNull: SendState? = null,
 ) {
+    val sendState: SendState get() = sendStateOrNull ?: SendState.SENT
+
     val isQuick: Boolean get() = kind == "QUICK"
     val isVoice: Boolean get() = kind == "VOICE"
     val isSystem: Boolean get() = kind == "SYSTEM"

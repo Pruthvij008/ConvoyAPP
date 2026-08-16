@@ -440,6 +440,22 @@ private fun ActiveTripScreen(
                 },
             routePoints = (viewModel.myRoute ?: trip.routeCache)?.points.orEmpty(),
             fitRouteKey = fitRouteKey,
+            // Tapping a car on the map asks the same question as tapping it
+            // in the roster — one answer, wherever you tap it.
+            onVehicleTapped = { vehicle ->
+                val p = vehicle.position
+                if (p?.lat != null && p.lng != null && vehicle.id != viewModel.myVehicleId) {
+                    navTarget = NavTarget(
+                        lat = p.lat!!,
+                        lng = p.lng!!,
+                        label = vehicle.label,
+                        subtitle = vehicle.currentStatus?.label ?: "In the convoy",
+                        vehicleId = vehicle.id,
+                        isMoving = !vehicle.hasActiveStop &&
+                            (vehicle.lastKnown?.speedKmh ?: 0.0) >= 3.0,
+                    )
+                }
+            },
             modifier = Modifier.fillMaxSize(),
         )
 

@@ -215,7 +215,7 @@ class ChatViewModel @Inject constructor(
         quickKey = quickKey,
         severity = severity,
         createdAt = null,
-        sendState = SendState.SENDING,
+        sendStateOrNull = SendState.SENDING,
     )
 
     private fun replacePending(pendingId: String, confirmed: Message) {
@@ -227,7 +227,7 @@ class ChatViewModel @Inject constructor(
 
     private fun markFailed(pendingId: String) {
         messages = messages.map {
-            if (it.id == pendingId) it.copy(sendState = SendState.FAILED) else it
+            if (it.id == pendingId) it.copy(sendStateOrNull = SendState.FAILED) else it
         }
     }
 
@@ -237,7 +237,7 @@ class ChatViewModel @Inject constructor(
         if (message.sendState != SendState.FAILED) return
 
         messages = messages.map {
-            if (it.id == message.id) it.copy(sendState = SendState.SENDING) else it
+            if (it.id == message.id) it.copy(sendStateOrNull = SendState.SENDING) else it
         }
 
         viewModelScope.launch {
