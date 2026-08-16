@@ -65,6 +65,11 @@ const userSchema = new mongoose.Schema(
     // has no Cloudinary publicId to delete.
     photo: { type: String, default: "default.jpg" },
 
+    // The Cloudinary handle for a self-uploaded avatar. `photo` above
+    // mirrors its url for display; this is what lets us DELETE the old one
+    // when it is replaced, which a url alone cannot do.
+    photoMedia: mediaSchema(false),
+
     // Set only when the user uploads their own avatar. We need the publicId
     // to delete it later; `photo` above mirrors its url for display, so
     // clients read one field and never branch.

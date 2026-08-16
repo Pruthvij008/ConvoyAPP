@@ -91,6 +91,10 @@ module.exports = {
     // bytes never pass through this server, which matters on a patchy
     // highway connection. We only ever handle the signature going out and
     // the publicId coming back.
+    // Root folder in the Cloudinary account. Everything Convoy uploads
+    // lives beneath it, which keeps this app's assets separate from
+    // anything else in the account and makes a full cleanup one delete.
+    folder: process.env.CLOUDINARY_FOLDER || "convoy-app",
     cloudName: process.env.CLOUDINARY_CLOUD_NAME || "",
     apiKey: process.env.CLOUDINARY_API_KEY || "",
     apiSecret: process.env.CLOUDINARY_API_SECRET || "",

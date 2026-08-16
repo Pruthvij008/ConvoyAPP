@@ -48,8 +48,13 @@ const mediaSchema = (required = false) => ({
 // Folder every asset for a trip lives under. The upload signature is scoped
 // to this prefix, so a signature for trip A cannot be used to write into
 // trip B, and deleting a trip is a single folder delete.
-const tripFolder = (tripId) => `convoy/trips/${tripId}`;
+// The account-level folder everything Convoy stores lives under, so these
+// assets never mix with anything else in the Cloudinary account and the
+// whole app's storage can be inspected or wiped in one place.
+const root = () => require("../config/config").media.folder;
 
-const userFolder = (userId) => `convoy/users/${userId}`;
+const tripFolder = (tripId) => `${root()}/trips/${tripId}`;
+
+const userFolder = (userId) => `${root()}/users/${userId}`;
 
 module.exports = { mediaSchema, tripFolder, userFolder };

@@ -13,4 +13,11 @@ router
   .patch(userController.updateMe)
   .delete(userController.deleteMe);
 
+// Optional profile photo. Signed, uploaded direct to Cloudinary, verified.
+router.post("/me/avatar/signature", userController.getAvatarSignature);
+router
+  .route("/me/avatar")
+  .post(userController.setAvatar)
+  .delete(userController.removeAvatar);
+
 module.exports = router;

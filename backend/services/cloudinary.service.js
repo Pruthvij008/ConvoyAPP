@@ -173,3 +173,28 @@ exports.listOrphans = async (tripId, referencedPublicIds) => {
 };
 
 exports.isEnabled = () => config.media.enabled;
+
+
+/**
+ * Deletes an asset.
+ *
+ * Used when a photo is REPLACED, not just when it is removed: Cloudinary
+ * bills on stored bytes, so a user who changes their avatar ten times would
+ * otherwise leave ten images on the account forever.
+ *
+ * Deliberately forgiving. A failed delete costs a little storage; throwing
+ * would fail the user's action for something they neither asked about nor
+ * can fix.
+ */
+exports.destroyAsset = async (publicId, resourceType = "image") => {
+  if (!publicId || !exports.isEnabled()) return false;
+  try {
+    const result = await cloudinary.uploader.destroy(publicId, {
+      resource_type: resourceType,
+    });
+    return result?.result === "ok";
+  } catch (err) {
+    console.warn(`Cloudinary delete failed for ${publicId}: ${err.message}`);
+    return false;
+  }
+};
