@@ -212,6 +212,19 @@ const simplify = (points, maxPoints = 1500) => {
 // nothing in the app should call it directly.
 exports.__simplify = simplify;
 
+/**
+ * Bumped whenever the geometry a route is built with changes shape.
+ *
+ * A trip caches its route once and keeps it for the life of the trip, so
+ * without this a fix to the simplifier reaches new trips only and every
+ * journey already under way keeps the flawed line it started with. Callers
+ * compare this against the cached value and rebuild when it has moved.
+ *
+ *   1 — every-Nth decimation (cut corners badly on long routes)
+ *   2 — Douglas-Peucker at 4 m, and Google asked for HIGH_QUALITY
+ */
+exports.GEOMETRY_VERSION = 2;
+
 // ── Google Routes ────────────────────────────────────────────────
 const viaGoogle = async (origin, destination) => {
   const response = await fetchWithTimeout(

@@ -179,6 +179,15 @@ const tripSchema = new mongoose.Schema(
       durationS: Number,
       provider: String, // "osrm" | "ors" | "straight-line"
       fetchedAt: Date,
+      // Which generation of the geometry pipeline produced this line.
+      //
+      // The route is computed once at trip start and then cached forever, so
+      // a fix to how geometry is simplified reaches new trips only — a trip
+      // already running keeps whatever shape it was given on the day, and
+      // the corner-cutting it was drawn with is permanent. Stamping the
+      // version lets the server notice its own cache is out of date and
+      // rebuild it, rather than the user being told to start a new trip.
+      geometryVersion: { type: Number, default: 0 },
       // Waypoint ids in the order the route visits them, so a client can
       // tell which leg it is on without recomputing.
       waypointOrder: [{ type: mongoose.Schema.ObjectId, ref: "Waypoint" }],

@@ -151,7 +151,75 @@ exports.getMyTrips = catchAsync(async (req, res) => {
 });
 
 // ── Detail ───────────────────────────────────────────────────────
+/**
+ * Rebuilds a trip's cached route when it was drawn by an older geometry
+ * pipeline.
+ *
+ * A trip caches its line once at start and keeps it for the whole journey,
+ * so a fix to how routes are simplified would otherwise reach only trips
+ * that had not begun — the drive you are actually on keeps its
+ * corner-cutting permanently.
+ *
+ * Two guards, both about not turning a routing failure into a stampede.
+ * The cooldown stops a failed rebuild being retried on every poll (the app
+ * polls every eight seconds, per member), and the in-flight set stops six
+ * phones in one convoy each kicking off the same rebuild at once.
+ */
+const rebuildAttemptedAt = new Map();
+const rebuildInFlight = new Set();
+const REBUILD_COOLDOWN_MS = 10 * 60 * 1000;
+
+const refreshStaleGeometry = async (trip, io) => {
+  const cached = trip.routeCache;
+  if (!cached?.coordinates?.length) return;
+  if ((cached.geometryVersion || 0) >= routingService.GEOMETRY_VERSION) return;
+  if (!trip.destination?.coordinates?.length) return;
+
+  const key = String(trip._id);
+  if (rebuildInFlight.has(key)) return;
+  const last = rebuildAttemptedAt.get(key);
+  if (last && Date.now() - last < REBUILD_COOLDOWN_MS) return;
+
+  rebuildInFlight.add(key);
+  rebuildAttemptedAt.set(key, Date.now());
+  try {
+    // Re-route from where the line already starts, not from anyone's
+    // current position: this is the SHARED planned route, and silently
+    // re-anchoring it to whoever happened to poll first would move the
+    // whole trip's line out from under everyone else.
+    const [originLng, originLat] = cached.coordinates[0];
+    const [destLng, destLat] = trip.destination.coordinates;
+
+    const route = await routingService.getRoute(
+      { lat: originLat, lng: originLng },
+      { lat: destLat, lng: destLng }
+    );
+    if (!route) return;
+
+    trip.routeCache = {
+      coordinates: route.coordinates,
+      distanceM: route.distanceM,
+      durationS: route.durationS,
+      provider: route.provider,
+      fetchedAt: new Date(),
+      geometryVersion: routingService.GEOMETRY_VERSION,
+    };
+    await trip.save();
+    if (io) io.to(`trip:${trip._id}`).emit("route:ready", { routeCache: trip.routeCache });
+    console.log(`↻ Rebuilt stale route geometry for trip ${trip._id}`);
+  } catch (err) {
+    console.warn(`⚠️  Could not rebuild route for ${trip._id}: ${err.message}`);
+  } finally {
+    rebuildInFlight.delete(key);
+  }
+};
+
 exports.getTrip = catchAsync(async (req, res) => {
+  // Self-healing, and deliberately awaited: the caller is about to be sent
+  // this trip, so handing them the corrected line now beats making them
+  // wait for the next poll to see it.
+  await refreshStaleGeometry(req.trip, req.app.get("io"));
+
   const [participants, vehicles] = await Promise.all([
     Participant.find({ tripId: req.trip._id, status: { $in: ["JOINED", "PENDING"] } }),
     Vehicle.find({ tripId: req.trip._id }),
@@ -405,7 +473,19 @@ exports.updateStatus = catchAsync(async (req, res, next) => {
   // Never allowed to block the start: a convoy with no drawn route still
   // does everything that matters, and a routing provider having a bad
   // minute must not be why six people cannot set off.
-  if (isStarting && req.trip.destination?.coordinates?.length) {
+  // A trip already under way whose cached line was built by an older,
+  // worse geometry pipeline. Rebuilding it here is what stops a fix to the
+  // simplifier applying only to trips that had not started yet — otherwise
+  // the journey you are actually on keeps the corner-cutting it was drawn
+  // with, permanently, and the only remedy is to abandon it and start again.
+  const cachedGeometryIsStale =
+    !!req.trip.routeCache?.coordinates?.length &&
+    (req.trip.routeCache.geometryVersion || 0) < routingService.GEOMETRY_VERSION;
+
+  if (
+    (isStarting || cachedGeometryIsStale) &&
+    req.trip.destination?.coordinates?.length
+  ) {
     try {
       // Nobody types where they are starting from — they are standing in
       // it. So the origin is the convoy's actual position at the moment it
@@ -443,6 +523,7 @@ exports.updateStatus = catchAsync(async (req, res, next) => {
           durationS: route.durationS,
           provider: route.provider,
           fetchedAt: new Date(),
+          geometryVersion: routingService.GEOMETRY_VERSION,
         };
         await req.trip.save();
 
