@@ -100,10 +100,10 @@ data class User(
     val authProvider: String? = null,
 
     @SerializedName("savedVehicles")
-    val savedVehicles: List<SavedVehicle> = emptyList(),
+    val savedVehicles: List<SavedVehicle>? = null,
 
     @SerializedName("emergencyContacts")
-    val emergencyContacts: List<EmergencyContact> = emptyList(),
+    val emergencyContacts: List<EmergencyContact>? = null,
 
     @SerializedName("preferences")
     val preferences: UserPreferences? = null,
@@ -112,7 +112,7 @@ data class User(
     val isAnonymous: Boolean get() = authProvider == "device"
 
     /** SOS needs a number; nothing else in the app does. */
-    val canUseSos: Boolean get() = !phone.isNullOrBlank() || emergencyContacts.isNotEmpty()
+    val canUseSos: Boolean get() = !phone.isNullOrBlank() || !emergencyContacts.isNullOrEmpty()
 }
 
 data class SavedVehicle(

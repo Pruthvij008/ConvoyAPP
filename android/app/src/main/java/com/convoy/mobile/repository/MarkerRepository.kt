@@ -10,6 +10,7 @@ import com.convoy.mobile.dataModel.marker.UpdateMarkerRequest
 import com.convoy.mobile.interfaces.MarkerInterface
 import com.convoy.mobile.network.NetworkResult
 import com.convoy.mobile.network.safeApiCall
+import kotlinx.coroutines.CancellationException
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -144,8 +145,17 @@ class MarkerRepository @Inject constructor(
             NetworkResult.Loading -> NetworkResult.Loading
         }
 
-        runCatching { markerApi.saveToLibrary(request) }
-            .onFailure { Log.w(TAG, "Marker saved to trip but not to library: ${it.message}") }
+        // try/catch rather than runCatching, which catches Throwable and
+        // would therefore swallow CancellationException — quietly breaking
+        // the caller's cancellation on a call that is explicitly allowed to
+        // fail.
+        try {
+            markerApi.saveToLibrary(request)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            Log.w(TAG, "Marker saved to trip but not to library: ${e.message}")
+        }
 
         return result
     }

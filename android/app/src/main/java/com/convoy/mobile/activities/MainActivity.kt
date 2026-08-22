@@ -157,10 +157,10 @@ class MainActivity : BaseActivity() {
      */
     private fun syncTrackingService() {
         val trip = viewModel.trip
-        val shouldTrack = trip?.isLive == true && hasLocationPermission()
 
-        if (shouldTrack) {
-            LocationTrackingService.start(this, trip!!.id, prefs.activeVehicleId)
+        if (trip != null && trip.isLive && hasLocationPermission()) {
+            // `trip` is a plain local, so this smart-casts and needs no `!!`.
+            LocationTrackingService.start(this, trip.id, prefs.activeVehicleId)
         } else if (trip != null && trip.isFinished) {
             // Only stop on a trip we have loaded and know is over. `null`
             // just means it hasn't arrived yet, and treating that as
@@ -320,7 +320,7 @@ private fun ActiveTripScreen(
 
     // The picker is driven by the trip's own curated marker set.
     LaunchedEffect(trip.id, viewModel.myVehicleId) {
-        markerViewModel.bind(trip.id, trip.markerSet, viewModel.myVehicleId)
+        markerViewModel.bind(trip.id, trip.markerSet.orEmpty(), viewModel.myVehicleId)
     }
     LaunchedEffect(trip.id) { alertViewModel.bind(trip.id) }
 
@@ -404,11 +404,10 @@ private fun ActiveTripScreen(
             canClear = true,
             isSaving = alertViewModel.isSaving,
             onNavigate = {
-                val loc = critical.location
-                if (loc?.lat != null && loc.lng != null) {
+                critical.location?.latLng()?.let { (alertLat, alertLng) ->
                     navTarget = NavTarget(
-                        lat = loc.lat!!,
-                        lng = loc.lng!!,
+                        lat = alertLat,
+                        lng = alertLng,
                         label = raisedBy ?: "Emergency",
                         subtitle = critical.message,
                         vehicleId = critical.vehicleId,
@@ -432,19 +431,24 @@ private fun ActiveTripScreen(
         val theirPos = chased.position
         val myPos = me?.position
 
-        if (theirPos?.lat == null || theirPos.lng == null) {
+        // Resolved once into locals, so the coordinates used below are the
+        // same ones that were checked — not a second read of a computed
+        // property that the compiler had to be told to trust with `!!`.
+        val theirCoords = theirPos?.latLng()
+        val myCoords = myPos?.latLng()
+
+        if (theirCoords == null) {
             // Chasing someone whose position we have lost tells us nothing,
             // and a frozen arrow would be worse than no arrow.
             chaseVehicleId = null
-        } else if (myPos?.lat == null || myPos.lng == null) {
+        } else if (myCoords == null) {
             chaseVehicleId = null
         } else {
-            val bearing = Geo.bearingDegrees(
-                myPos.lat!!, myPos.lng!!, theirPos.lat!!, theirPos.lng!!,
-            )
-            val metres = Geo.distanceMeters(
-                myPos.lat!!, myPos.lng!!, theirPos.lat!!, theirPos.lng!!,
-            )
+            val (theirLat, theirLng) = theirCoords
+            val (myLat, myLng) = myCoords
+
+            val bearing = Geo.bearingDegrees(myLat, myLng, theirLat, theirLng)
+            val metres = Geo.distanceMeters(myLat, myLng, theirLat, theirLng)
             // Speed and heading live on lastKnown; position is only the
             // coordinate pair.
             val mine = me.lastKnown
@@ -465,9 +469,7 @@ private fun ActiveTripScreen(
                 ),
                 targetStopped = stopped,
                 onNavigateInstead = {
-                    Navigation.navigateTo(
-                        context, theirPos.lat!!, theirPos.lng!!, chased.label,
-                    )
+                    Navigation.navigateTo(context, theirLat, theirLng, chased.label)
                 },
                 onClose = { chaseVehicleId = null },
             )
@@ -514,11 +516,11 @@ private fun ActiveTripScreen(
             // Tapping a car on the map asks the same question as tapping it
             // in the roster — one answer, wherever you tap it.
             onVehicleTapped = { vehicle ->
-                val p = vehicle.position
-                if (p?.lat != null && p.lng != null && vehicle.id != viewModel.myVehicleId) {
+                val coords = vehicle.position?.latLng()
+                if (coords != null && vehicle.id != viewModel.myVehicleId) {
                     navTarget = NavTarget(
-                        lat = p.lat!!,
-                        lng = p.lng!!,
+                        lat = coords.first,
+                        lng = coords.second,
                         label = vehicle.label,
                         subtitle = vehicle.currentStatus?.label ?: "In the convoy",
                         vehicleId = vehicle.id,
@@ -622,14 +624,14 @@ private fun ActiveTripScreen(
                 AlertBanner(
                     alert = alert,
                     onDismiss = { alertViewModel.dismiss(alert) },
-                    actionLabel = alert.location?.lat?.let { "Show me" },
-                    onAction = alert.location?.lat?.let {
-                        {
-                            val loc = alert.location
-                            if (loc?.lat != null && loc.lng != null) {
-                                Navigation.showOnMap(context, loc.lat!!, loc.lng!!, alert.type)
-                            }
-                        }
+                    // Keyed on the same pair the action needs. Keyed on
+                    // `lat` alone, an alert carrying only a latitude showed
+                    // a "Show me" button that did nothing when tapped.
+                    actionLabel = alert.location?.latLng()?.let { "Show me" },
+                    // Built from the resolved pair, so the action only
+                    // exists when there is actually somewhere to show.
+                    onAction = alert.location?.latLng()?.let { (alertLat, alertLng) ->
+                        { Navigation.showOnMap(context, alertLat, alertLng, alert.type) }
                     },
                 )
             }
@@ -644,15 +646,21 @@ private fun ActiveTripScreen(
             SosButton(
                 countdown = alertViewModel.sosCountdown,
                 onStart = {
+                    // A provider, not a pair of values: this is invoked when
+                    // the countdown ends, so it reads the position we have
+                    // THEN rather than the one we had ten seconds earlier.
+                    //
                     // Our own GPS first. An emergency raised at the position
-                    // the server last heard about can be a fifteen-second
-                    // drive back down the road from where the car actually
-                    // is — which, for the one alert that has to be right, is
-                    // the one place it must not be.
-                    alertViewModel.startSosCountdown(
-                        viewModel.myFix?.lat ?: myVehicle?.position?.lat,
-                        viewModel.myFix?.lng ?: myVehicle?.position?.lng,
-                    )
+                    // the server last heard about can be a long way back
+                    // down the road from where the car actually is — which,
+                    // for the one alert that has to be right, is the one
+                    // place it must not be.
+                    alertViewModel.startSosCountdown {
+                        viewModel.myFix?.let { fix -> fix.lat to fix.lng }
+                            ?: viewModel.vehicles
+                                .firstOrNull { it.id == viewModel.myVehicleId }
+                                ?.position?.latLng()
+                    }
                 },
                 onCancel = alertViewModel::cancelSosCountdown,
             )
@@ -732,11 +740,10 @@ private fun ActiveTripScreen(
                 modifier = Modifier.align(Alignment.BottomCenter),
                 onOpenTripControls = { showTripControls = true },
                 onNavigateToDestination = {
-                    val d = trip.destination
-                    if (d?.lat != null && d.lng != null) {
+                    trip.destination?.latLng()?.let { (destLat, destLng) ->
                         navTarget = NavTarget(
-                            lat = d.lat!!,
-                            lng = d.lng!!,
+                            lat = destLat,
+                            lng = destLng,
                             label = trip.destinationAddress ?: trip.name,
                             subtitle = "Where the trip is headed",
                         )
@@ -747,11 +754,10 @@ private fun ActiveTripScreen(
                 // handles that properly — but a moving one is exactly the
                 // case turn-by-turn cannot serve, and Chase Mode can.
                 onNavigateToVehicle = { vehicle ->
-                    val p = vehicle.position
-                    if (p?.lat != null && p.lng != null) {
+                    vehicle.position?.latLng()?.let { (carLat, carLng) ->
                         navTarget = NavTarget(
-                            lat = p.lat!!,
-                            lng = p.lng!!,
+                            lat = carLat,
+                            lng = carLng,
                             label = vehicle.label,
                             subtitle = vehicle.currentStatus?.label ?: "In the convoy",
                             vehicleId = vehicle.id,
@@ -764,12 +770,24 @@ private fun ActiveTripScreen(
         }
 
         // Above everything, including navigation. A failure the user cannot
-        // see is a failure reported to nobody.
+        // see is a failure reported to nobody — and two whole ViewModels
+        // were reporting into the void here.
+        //
+        // MapViewModel.errorMessage covers End trip, Pause and Leave: the
+        // host tapped "End trip", the server refused, and the app said
+        // nothing at all. AlertViewModel.errorMessage was worse — a failed
+        // SOS looked exactly like a sent one, which is the single most
+        // dangerous silence this app could have.
         TopSnackbar(
-            message = viewModel.routeError ?: markerViewModel.errorMessage,
+            message = viewModel.routeError
+                ?: alertViewModel.errorMessage
+                ?: viewModel.errorMessage
+                ?: markerViewModel.errorMessage,
             modifier = Modifier.align(Alignment.TopCenter),
             onDismiss = {
                 viewModel.clearRouteError()
+                alertViewModel.dismissError()
+                viewModel.dismissError()
                 markerViewModel.dismissError()
             },
         )
@@ -846,12 +864,10 @@ private fun ActiveTripScreen(
         }
 
         shownTarget.value?.let { target ->
-            val myPos = viewModel.vehicles
-                .firstOrNull { it.id == viewModel.myVehicleId }?.position
-            val metres = if (myPos?.lat != null && myPos.lng != null) {
-                Geo.distanceMeters(myPos.lat!!, myPos.lng!!, target.lat, target.lng)
-            } else {
-                null
+            val myCoords = viewModel.vehicles
+                .firstOrNull { it.id == viewModel.myVehicleId }?.position?.latLng()
+            val metres = myCoords?.let { (myLat, myLng) ->
+                Geo.distanceMeters(myLat, myLng, target.lat, target.lng)
             }
 
             // What they sent with their stop, if anything. This is why a

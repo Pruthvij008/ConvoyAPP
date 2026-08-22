@@ -34,6 +34,7 @@ import com.convoy.mobile.customControls.PrimaryButton
 import com.convoy.mobile.customControls.SectionLabel
 import com.convoy.mobile.customControls.SurfaceCard
 import com.convoy.mobile.customControls.VehicleBadge
+import com.convoy.mobile.customControls.TopSnackbar
 import com.convoy.mobile.customControls.clickableOnce
 import com.convoy.mobile.dataModel.vehicle.Participant
 import com.convoy.mobile.dataModel.vehicle.Vehicle
@@ -107,6 +108,12 @@ private fun LobbyScreen(
     LaunchedEffect(viewModel.tripStarted) {
         if (viewModel.tripStarted) onStarted()
     }
+
+    // The lobby had no way to report a failure at all. Everything it does
+    // is a write someone is waiting on — start the trip, admit a member,
+    // hand over host, mark yourself ready — and every one of them could be
+    // refused by the server with the screen showing no sign of it.
+    Box(modifier = Modifier.fillMaxSize()) {
 
     Column(
         modifier = Modifier
@@ -229,6 +236,14 @@ private fun LobbyScreen(
                 )
             }
         }
+    }
+
+        // Every failure this screen can produce, finally visible.
+        TopSnackbar(
+            message = viewModel.errorMessage,
+            modifier = Modifier.align(Alignment.TopCenter),
+            onDismiss = viewModel::dismissError,
+        )
     }
 }
 

@@ -9,6 +9,7 @@ const Participant = require("../models/participantModel");
 const redis = require("../services/redis.service");
 const locationService = require("../services/location.service");
 const messageService = require("../services/message.service");
+const { isValidLatLng } = require("../utils/geo");
 
 // ─────────────────────────────────────────────────────────────
 // Socket layer.
@@ -90,6 +91,35 @@ exports.attach = (httpServer) => {
   // listener attached, so awaiting the snapshot first would open a window
   // where a client that acts immediately on `trip:snapshot` loses its first
   // messages — with no error anywhere to explain it.
+  // ── Handler safety net ────────────────────────────────────
+  // An async socket handler that rejects produces an UNHANDLED REJECTION,
+  // and server.js answers those by closing the server and exiting. So a
+  // single momentary Redis or Mongo hiccup — during a `disconnect`, which
+  // fires every time somebody drives into a tunnel — would take the whole
+  // process down and drop the entire convoy mid-journey.
+  //
+  // `position:update` and the chat handlers already had their own try/catch.
+  // These wrappers cover the ones that did not, and make it hard for the
+  // next handler added here to reintroduce the same hole.
+  const guarded = (name, handler) => async (payload, ack) => {
+    try {
+      await handler(payload, ack);
+    } catch (err) {
+      console.error(`socket ${name} failed:`, err.message);
+      ack?.({ ok: false, error: "Something went wrong." });
+    }
+  };
+
+  // No payload and no ack, so nothing to report back — but still must not
+  // be allowed to reject.
+  const guardedVoid = (name, handler) => async () => {
+    try {
+      await handler();
+    } catch (err) {
+      console.error(`socket ${name} failed:`, err.message);
+    }
+  };
+
   io.on("connection", (socket) => {
     const { tripId, participantId, displayName } = socket.data;
 
@@ -102,10 +132,10 @@ exports.attach = (httpServer) => {
         const withinRate = await redis.checkRate(socket.id, RATE_LIMIT.max, RATE_LIMIT.windowSec);
         if (!withinRate) return ack?.({ ok: false, error: "Slow down." });
 
-        if (typeof payload?.lat !== "number" || typeof payload?.lng !== "number") {
-          return ack?.({ ok: false, error: "lat and lng are required numbers." });
-        }
-        if (Math.abs(payload.lat) > 90 || Math.abs(payload.lng) > 180) {
+        // isValidLatLng, not a typeof plus a bounds check: NaN is a number
+        // and every comparison against it is false, so NaN slipped straight
+        // through the old test and into the 2dsphere index.
+        if (!isValidLatLng(payload?.lat, payload?.lng)) {
           return ack?.({ ok: false, error: "Coordinates out of range." });
         }
 
@@ -149,11 +179,11 @@ exports.attach = (httpServer) => {
     });
 
     // Explicit re-sync, for a client that knows it missed messages.
-    socket.on("trip:resync", async (_payload, ack) => {
+    socket.on("trip:resync", guarded("trip:resync", async (_payload, ack) => {
       const vehicles = await locationService.getTripSnapshot(tripId);
       const online = await redis.getPresence(tripId);
       ack?.({ ok: true, vehicles, online, serverTime: new Date().toISOString() });
-    });
+    }));
 
     // ── Chat ──────────────────────────────────────────────────
     // Persisted BEFORE broadcasting. A socket emit is fire-and-forget, so
@@ -215,7 +245,7 @@ exports.attach = (httpServer) => {
     });
 
     // Pausing sharing is visible to the group — no invisible observers.
-    socket.on("sharing:set", async (payload, ack) => {
+    socket.on("sharing:set", guarded("sharing:set", async (payload, ack) => {
       const state = payload?.sharing === false ? "PAUSED" : "SHARING";
       await Participant.updateOne({ _id: participantId }, { sharingState: state });
       if (state === "PAUSED" && socket.data.vehicleId) {
@@ -223,9 +253,9 @@ exports.attach = (httpServer) => {
       }
       io.to(room(tripId)).emit("sharing:changed", { participantId, displayName, state });
       ack?.({ ok: true, state });
-    });
+    }));
 
-    socket.on("disconnect", async () => {
+    socket.on("disconnect", guardedVoid("disconnect", async () => {
       await redis.removePresence(tripId, participantId);
       await Participant.updateOne(
         { _id: participantId },
@@ -235,7 +265,7 @@ exports.attach = (httpServer) => {
       // A dropped socket usually means a tunnel, not a departure — staleness
       // is derived from the last position timestamp instead (plan §4.5).
       socket.to(room(tripId)).emit("presence:left", { participantId, displayName });
-    });
+    }));
 
     // ── Bootstrap, after every listener is attached ───────────
     // A socket only ever delivers what happens AFTER it connects. Without

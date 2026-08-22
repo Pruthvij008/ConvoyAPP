@@ -157,26 +157,50 @@ class VoicePlayer {
 
     fun play(url: String, onFinished: () -> Unit) {
         stop()
+
+        // Built into a local first. Assigning straight to `player` inside
+        // `apply` meant that if setDataSource threw — an unreachable URL, an
+        // unsupported clip — the assignment never happened and the
+        // half-built MediaPlayer was orphaned with its native resources
+        // still held. MediaPlayers are a limited system resource; a few
+        // failed voice notes used to be enough to stop playback working
+        // at all until the process restarted.
+        val created = MediaPlayer()
         try {
-            player = MediaPlayer().apply {
+            created.apply {
                 setDataSource(url)
                 setOnCompletionListener {
-                    playingUrl = null
+                    // Identity-checked: if another clip started before this
+                    // one finished, `player` already points at the new one
+                    // and clearing it here would silence a clip that is
+                    // still playing.
+                    if (player === created) {
+                        playingUrl = null
+                        player = null
+                    }
                     onFinished()
                     release()
-                    player = null
                 }
-                setOnErrorListener { _, _, _ ->
-                    playingUrl = null
+                setOnErrorListener { _, what, extra ->
+                    // This path used to return true and walk away, leaking
+                    // the player every time a clip failed.
+                    Log.w(TAG, "Playback error ($what/$extra) for $url")
+                    if (player === created) {
+                        playingUrl = null
+                        player = null
+                    }
                     onFinished()
+                    release()
                     true
                 }
-                prepareAsync()
                 setOnPreparedListener { it.start() }
+                prepareAsync()
             }
+            player = created
             playingUrl = url
         } catch (e: Exception) {
             Log.e(TAG, "Playback failed: ${e.message}")
+            runCatching { created.release() }
             playingUrl = null
             onFinished()
         }

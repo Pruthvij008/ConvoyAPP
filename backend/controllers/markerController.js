@@ -4,7 +4,7 @@ const Trip = require("../models/tripModel");
 const User = require("../models/userModel");
 const catchAsync = require("../utils/catchAsync");
 const AppError = require("../utils/appError");
-const { toPoint } = require("../utils/geo");
+const { toPoint, isValidLatLng } = require("../utils/geo");
 const { MARKER_CATALOGUE, CATEGORIES, SEVERITIES } = require("../config/markerCatalogue");
 
 // Durable first, broadcast second. A socket message is fire-and-forget — if
@@ -85,7 +85,14 @@ exports.createMarker = catchAsync(async (req, res, next) => {
   // A status marker defaults to the vehicle's current position when the
   // client doesn't send one; a place marker must say where it is.
   let location;
-  if (typeof lat === "number" && typeof lng === "number") {
+  // isValidLatLng rather than a bare typeof: NaN is a number, and a NaN
+  // pair reached the 2dsphere index as a Mongoose ValidationError rather
+  // than as the clear 400 the client can actually act on. Out-of-range
+  // values had no check here at all.
+  if (lat !== undefined || lng !== undefined) {
+    if (!isValidLatLng(lat, lng)) {
+      return next(new AppError("Those coordinates aren't valid.", 400));
+    }
     location = toPoint(lat, lng);
   } else if (kind === "STATUS") {
     const vehicle = await Vehicle.findById(req.participant.vehicleId);

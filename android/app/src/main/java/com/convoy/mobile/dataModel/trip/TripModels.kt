@@ -41,11 +41,14 @@ data class Trip(
     @SerializedName("destinationAddress")
     val destinationAddress: String? = null,
 
+    // Nullable for the Gson reason: `= TripSettings()` never runs for a
+    // field the server omits. `canJoin` below reads it, so a null here
+    // would crash the join screen rather than the response parser.
     @SerializedName("settings")
-    val settings: TripSettings = TripSettings(),
+    val settings: TripSettings? = null,
 
     @SerializedName("markerSet")
-    val markerSet: List<TripMarker> = emptyList(),
+    val markerSet: List<TripMarker>? = null,
 
     // Fetched once by the server and shared with everyone, so N members
     // never mean N routing calls.
@@ -53,7 +56,7 @@ data class Trip(
     val routeCache: RouteCache? = null,
 
     @SerializedName("counts")
-    val counts: TripCounts = TripCounts(),
+    val counts: TripCounts? = null,
 
     @SerializedName("plannedStartAt")
     val plannedStartAt: String? = null,
@@ -81,16 +84,17 @@ data class Trip(
         get() = status == TripStatus.ENDED || status == TripStatus.ABANDONED
 
     val canJoin: Boolean
-        get() = (status == TripStatus.LOBBY || status == TripStatus.ACTIVE) && !settings.isLocked
+        get() = (status == TripStatus.LOBBY || status == TripStatus.ACTIVE) &&
+            settings?.isLocked != true
 
     val amHost: Boolean get() = myRole == ParticipantRole.HOST || myRole == ParticipantRole.CO_HOST
 
     /** The 3-4 big buttons a driver can hit without looking. */
     val favouriteMarkers: List<TripMarker>
-        get() = markerSet.filter { it.isFavourite }.sortedBy { it.order }
+        get() = markerSet.orEmpty().filter { it.isFavourite }.sortedBy { it.order }
 
     val markersByCategory: Map<String, List<TripMarker>>
-        get() = markerSet.sortedBy { it.order }.groupBy { it.category }
+        get() = markerSet.orEmpty().sortedBy { it.order }.groupBy { it.category }
 }
 
 object TripStatus {
@@ -364,7 +368,7 @@ data class TripListResponse(
 
 data class TripListData(
     @SerializedName("trips")
-    val trips: List<Trip> = emptyList(),
+    val trips: List<Trip>? = null,
 )
 
 data class TripDetailResponse(
@@ -384,12 +388,21 @@ data class TripDetailData(
     @SerializedName("me")
     val me: Participant,
 
+    /**
+     * NULLABLE on purpose. Gson never runs Kotlin constructors, so a list
+     * the server omits stays null whatever default is written here — and a
+     * non-null declaration turns that into an NPE the moment it is assigned
+     * to state. Read through the accessors below.
+     */
     @SerializedName("participants")
-    val participants: List<Participant> = emptyList(),
+    val participants: List<Participant>? = null,
 
     @SerializedName("vehicles")
-    val vehicles: List<Vehicle> = emptyList(),
-)
+    val vehicles: List<Vehicle>? = null,
+) {
+    val peopleOrEmpty: List<Participant> get() = participants.orEmpty()
+    val vehiclesOrEmpty: List<Vehicle> get() = vehicles.orEmpty()
+}
 
 /** What you see after tapping a shared link, BEFORE committing to join. */
 data class PreviewResponse(
@@ -497,10 +510,10 @@ data class LobbyData(
     val status: String,
 
     @SerializedName("participants")
-    val participants: List<Participant> = emptyList(),
+    val participants: List<Participant>? = null,
 
     @SerializedName("vehicles")
-    val vehicles: List<Vehicle> = emptyList(),
+    val vehicles: List<Vehicle>? = null,
 
     @SerializedName("pendingRequests")
     val pendingRequests: Int = 0,
@@ -512,7 +525,7 @@ data class LobbyData(
     val total: Int = 0,
 
     @SerializedName("blockers")
-    val blockers: LobbyBlockers = LobbyBlockers(),
+    val blockers: LobbyBlockers? = null,
 
     @SerializedName("canStart")
     val canStart: Boolean = false,
@@ -529,10 +542,10 @@ data class LobbyBlockers(
      * rather than "1 participant has no vehicle".
      */
     @SerializedName("unassigned")
-    val unassigned: List<String> = emptyList(),
+    val unassigned: List<String>? = null,
 
     @SerializedName("notReady")
-    val notReady: List<String> = emptyList(),
+    val notReady: List<String>? = null,
 )
 
 data class ReadyResponse(

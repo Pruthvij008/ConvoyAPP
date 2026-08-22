@@ -147,7 +147,7 @@ class AlertViewModel @Inject constructor(
      * Starts the cancellable countdown. Nothing leaves the phone until it
      * reaches zero, which is what makes an accidental press harmless.
      */
-    fun startSosCountdown(lat: Double?, lng: Double?) {
+    fun startSosCountdown(locate: () -> Pair<Double, Double>?) {
         if (countdownRunning) return
 
         countdownJob = viewModelScope.launch {
@@ -156,7 +156,23 @@ class AlertViewModel @Inject constructor(
                 delay(1_000)
             }
             sosCountdown = null
-            sendSos(lat, lng)
+
+            // Resolved HERE, at send time, not when the button was pressed.
+            //
+            // The countdown is ten seconds, which at highway speed is the
+            // better part of three hundred metres — so a position captured
+            // on the press was already wrong by the time it was sent. Worse,
+            // if there was no fix yet when the button went down, the SOS
+            // went out with no location at all and stayed that way even
+            // though a fix had almost certainly arrived during the count.
+            //
+            // For the one message in this app that has to say where you
+            // are, neither was acceptable.
+            val here = locate()
+            if (here == null) {
+                Log.w(TAG, "Raising SOS with no position — none available at send time")
+            }
+            sendSos(here?.first, here?.second)
         }
     }
 

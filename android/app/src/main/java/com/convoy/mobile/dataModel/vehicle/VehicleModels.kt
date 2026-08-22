@@ -233,7 +233,7 @@ data class VehicleListResponse(
 
 data class VehicleListData(
     @SerializedName("vehicles")
-    val vehicles: List<Vehicle> = emptyList(),
+    val vehicles: List<Vehicle>? = null,
 )
 
 data class VehicleResponse(

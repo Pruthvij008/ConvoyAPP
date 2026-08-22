@@ -182,6 +182,15 @@ const refreshStaleGeometry = async (trip, io) => {
 
   rebuildInFlight.add(key);
   rebuildAttemptedAt.set(key, Date.now());
+  // Bounded, because this server is long-running and every trip that ever
+  // polls would otherwise leave an entry here forever. Anything older than
+  // the cooldown can never suppress a rebuild again, so it is dead weight.
+  if (rebuildAttemptedAt.size > 500) {
+    const cutoff = Date.now() - REBUILD_COOLDOWN_MS;
+    for (const [id, at] of rebuildAttemptedAt) {
+      if (at < cutoff) rebuildAttemptedAt.delete(id);
+    }
+  }
   try {
     // Re-route from where the line already starts, not from anyone's
     // current position: this is the SHARED planned route, and silently
