@@ -2,6 +2,15 @@ package com.convoy.mobile.activities
 
 import android.content.Intent
 import android.os.Bundle
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.animateContentSize
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
@@ -765,16 +774,39 @@ private fun ActiveTripScreen(
             },
         )
 
-        if (showTripControls) {
-            // Scrim first, so the sheet reads as modal and a stray tap on
-            // the map behind it cannot fire something else.
+        // Scrim and sheet animate separately: the backdrop fades, the sheet
+        // slides. Popping a modal into existence with no transition is the
+        // single thing that most makes an app feel unfinished, and it also
+        // costs the user the sense of where the sheet came from.
+        AnimatedVisibility(
+            visible = showTripControls,
+            enter = fadeIn(animationSpec = tween(160)),
+            exit = fadeOut(animationSpec = tween(160)),
+            modifier = Modifier.fillMaxSize(),
+        ) {
             Box(
                 modifier = Modifier
                     .fillMaxSize()
                     .background(Color.Black.copy(alpha = 0.45f))
-                    .clickableOnce(haptic = false) { showTripControls = false }
+                    .clickableOnce(haptic = false, pressScale = 1f) { showTripControls = false }
             )
-            Box(modifier = Modifier.align(Alignment.BottomCenter)) {
+        }
+        AnimatedVisibility(
+            visible = showTripControls,
+            // Comes up from the edge it lives on, and leaves the same way.
+            enter = slideInVertically(
+                initialOffsetY = { it },
+                animationSpec = spring(
+                    dampingRatio = Spring.DampingRatioLowBouncy,
+                    stiffness = Spring.StiffnessMediumLow,
+                ),
+            ) + fadeIn(animationSpec = tween(120)),
+            exit = slideOutVertically(
+                targetOffsetY = { it },
+                animationSpec = tween(180),
+            ) + fadeOut(animationSpec = tween(140)),
+            modifier = Modifier.align(Alignment.BottomCenter),
+        ) {
                 TripControlsSheet(
                     tripName = trip.name,
                     paused = paused,
@@ -791,19 +823,29 @@ private fun ActiveTripScreen(
                     onLeaveTrip = { viewModel.leaveTrip { showTripControls = false } },
                     onDismiss = { showTripControls = false },
                 )
-            }
         }
 
-        navTarget?.let { target ->
-            // Scrim first, so the sheet reads as modal and a stray tap on
-            // the map behind it cannot fire something else.
+        // The sheet has to keep rendering its old contents while it slides
+        // away, but navTarget is already null by then. Holding the last
+        // non-null target is what lets it animate out instead of vanishing.
+        val shownTarget = remember { mutableStateOf<NavTarget?>(null) }
+        navTarget?.let { shownTarget.value = it }
+
+        AnimatedVisibility(
+            visible = navTarget != null,
+            enter = fadeIn(animationSpec = tween(160)),
+            exit = fadeOut(animationSpec = tween(160)),
+            modifier = Modifier.fillMaxSize(),
+        ) {
             Box(
                 modifier = Modifier
                     .fillMaxSize()
                     .background(Color.Black.copy(alpha = 0.45f))
-                    .clickableOnce(haptic = false) { navTarget = null }
+                    .clickableOnce(haptic = false, pressScale = 1f) { navTarget = null }
             )
+        }
 
+        shownTarget.value?.let { target ->
             val myPos = viewModel.vehicles
                 .firstOrNull { it.id == viewModel.myVehicleId }?.position
             val metres = if (myPos?.lat != null && myPos.lng != null) {
@@ -817,7 +859,21 @@ private fun ActiveTripScreen(
             // person deciding whether to turn round.
             val theirStop = markerViewModel.stopFor(target.vehicleId)
 
-            Box(modifier = Modifier.align(Alignment.BottomCenter)) {
+            AnimatedVisibility(
+                visible = navTarget != null,
+                enter = slideInVertically(
+                    initialOffsetY = { it },
+                    animationSpec = spring(
+                        dampingRatio = Spring.DampingRatioLowBouncy,
+                        stiffness = Spring.StiffnessMediumLow,
+                    ),
+                ) + fadeIn(animationSpec = tween(120)),
+                exit = slideOutVertically(
+                    targetOffsetY = { it },
+                    animationSpec = tween(180),
+                ) + fadeOut(animationSpec = tween(140)),
+                modifier = Modifier.align(Alignment.BottomCenter),
+            ) {
                 NavigationChoiceSheet(
                     target = target,
                     distanceText = metres?.let { Formatters.distance(it) },
@@ -968,6 +1024,16 @@ private fun ConvoySheet(
             .fillMaxWidth()
             .shadow(24.dp, sheetShape, clip = false)
             .background(colors.surface, sheetShape)
+            // The sheet's height changes constantly — a car joins, someone
+            // marks a stop and the roster is replaced by the stop card. Left
+            // unanimated the whole sheet jumps, and on a screen the user is
+            // glancing at from the road a jump reads as something breaking.
+            .animateContentSize(
+                animationSpec = spring(
+                    dampingRatio = Spring.DampingRatioNoBouncy,
+                    stiffness = Spring.StiffnessMediumLow,
+                )
+            )
             .navigationBarsPadding()
             .padding(bottom = 14.dp),
     ) {
