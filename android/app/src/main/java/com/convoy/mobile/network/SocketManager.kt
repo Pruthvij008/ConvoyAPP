@@ -67,7 +67,20 @@ class SocketManager @Inject constructor(
             .setAuth(mapOf("token" to token, "tripId" to tripId))
             .build()
 
-        socket = IO.socket(ApiEndpoints.SOCKET_URL, options).apply {
+        // IO.socket throws on a malformed URI. This is called from the
+        // location service's onStartCommand, so an unparseable SOCKET_URL —
+        // a bad build config, a typo'd host — would not surface as "cannot
+        // connect" but as the tracking service dying the moment a trip
+        // starts, taking location sharing with it.
+        val created = try {
+            IO.socket(ApiEndpoints.SOCKET_URL, options)
+        } catch (e: Exception) {
+            Log.e(TAG, "Bad socket URL '${ApiEndpoints.SOCKET_URL}': ${e.message}")
+            _connected.value = false
+            return
+        }
+
+        socket = created.apply {
             on(Socket.EVENT_CONNECT) {
                 Log.d(TAG, "Connected to trip $tripId")
                 _connected.value = true
@@ -153,7 +166,13 @@ class SocketManager @Inject constructor(
     }
 
     private fun emit(event: SocketEvent) {
-        _events.tryEmit(event)
+        // tryEmit returns false when the buffer is full, and the event is
+        // then silently gone. Sixty-four deep, that should never happen —
+        // but "should never happen" is exactly the kind of loss that would
+        // otherwise present as a missed SOS with nothing in the log.
+        if (!_events.tryEmit(event)) {
+            Log.w(TAG, "Dropped socket event ${event::class.simpleName} — buffer full")
+        }
     }
 
     private fun Array<Any>.json(): JSONObject =

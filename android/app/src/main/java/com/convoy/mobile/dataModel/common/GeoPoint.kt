@@ -13,15 +13,44 @@ import com.google.gson.annotations.SerializedName
 data class GeoPoint(
 
     @SerializedName("type")
-    val type: String = "Point",
+    val type: String? = "Point",
 
+    /**
+     * NULLABLE, and the default is a lie you must not rely on.
+     *
+     * Gson builds objects by unsafe allocation and never runs Kotlin
+     * constructors, so `= emptyList()` is never executed for a field the
+     * JSON omits — it stays null regardless. Declared non-null, every
+     * accessor below would then throw NPE on a point the server sent
+     * without coordinates, and it would throw deep inside the map draw
+     * rather than anywhere near the response that caused it.
+     *
+     * Read it through [lat], [lng] and [isValid], which are null-safe.
+     */
     @SerializedName("coordinates")
-    val coordinates: List<Double> = emptyList(),
+    val coordinates: List<Double>? = null,
 ) {
-    val lng: Double? get() = coordinates.getOrNull(0)
-    val lat: Double? get() = coordinates.getOrNull(1)
+    val lng: Double? get() = coordinates?.getOrNull(0)
+    val lat: Double? get() = coordinates?.getOrNull(1)
 
-    val isValid: Boolean get() = coordinates.size == 2
+    val isValid: Boolean get() = coordinates?.size == 2
+
+    /**
+     * Both coordinates together, or null if either is missing.
+     *
+     * Exists to kill a pattern that was all over the app: check `lat != null
+     * && lng != null`, then read them back with `!!`. Kotlin cannot smart-cast
+     * `lat` and `lng` because they are computed properties, so the `!!` was
+     * unavoidable — and it meant every position on the map was one malformed
+     * point away from a crash, in code that LOOKED null-checked.
+     *
+     * Destructure it instead: `val (lat, lng) = point.latLng() ?: return`.
+     */
+    fun latLng(): Pair<Double, Double>? {
+        val latitude = lat ?: return null
+        val longitude = lng ?: return null
+        return latitude to longitude
+    }
 
     companion object {
         /** Builds a point from the lat/lng order humans and Android use. */

@@ -13,6 +13,7 @@ import okhttp3.MultipartBody
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.asRequestBody
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.json.JSONObject
@@ -93,6 +94,11 @@ class AvatarRepository @Inject constructor(
                         }
                     }
             }
+        } catch (e: CancellationException) {
+            // Rethrown before the generic clause, so leaving the screen
+            // mid-upload cancels cleanly instead of reporting a failure.
+            // The `finally` below still deletes the cached copy.
+            throw e
         } catch (e: Exception) {
             Log.e(TAG, "Avatar upload failed", e)
             null

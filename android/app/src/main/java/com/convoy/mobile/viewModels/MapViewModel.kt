@@ -378,8 +378,8 @@ class MapViewModel @Inject constructor(
                     consecutiveRejections = 0
                     trip = result.data.trip
                     me = result.data.me
-                    participants = result.data.participants
-                    vehicles = result.data.vehicles
+                    participants = result.data.participants.orEmpty()
+                    vehicles = result.data.vehicles.orEmpty()
                     // REST just replaced the list, so re-overlay anything the
                     // socket has told us since — otherwise a live dot jumps
                     // back to its last persisted position every 8 seconds.

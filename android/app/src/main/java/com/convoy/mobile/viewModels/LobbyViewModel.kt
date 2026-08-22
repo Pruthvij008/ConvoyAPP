@@ -108,8 +108,8 @@ class LobbyViewModel @Inject constructor(
                 is NetworkResult.Success -> {
                     trip = detail.data.trip
                     me = detail.data.me
-                    participants = detail.data.participants
-                    vehicles = detail.data.vehicles
+                    participants = detail.data.participants.orEmpty()
+                    vehicles = detail.data.vehicles.orEmpty()
 
                     // Only navigate when the trip STARTS while we are watching.
                     // If it was already running when this screen opened, the
@@ -127,7 +127,7 @@ class LobbyViewModel @Inject constructor(
                     readyCount = lobby.data.readyCount
                     total = lobby.data.total
                     pendingRequests = lobby.data.pendingRequests
-                    blockers = lobby.data.blockers
+                    blockers = lobby.data.blockers ?: LobbyBlockers()
                     canStart = lobby.data.canStart
                 }
                 is NetworkResult.Error -> Log.w(TAG, "Lobby fetch failed: ${lobby.message}")

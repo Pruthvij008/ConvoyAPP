@@ -12,6 +12,7 @@ import okhttp3.MultipartBody
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.asRequestBody
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.json.JSONObject
@@ -83,6 +84,11 @@ class MediaRepository @Inject constructor(
             withContext(Dispatchers.IO) {
                 uploadDirect(signature.uploadUrl, signature, file)
             }
+        } catch (e: CancellationException) {
+            // Never swallowed: the screen was left or the ViewModel cleared,
+            // and turning that into a user-facing upload error is both wrong
+            // and a break in structured concurrency.
+            throw e
         } catch (e: IOException) {
             // The one case that genuinely IS the signal.
             Log.e(TAG, "Direct upload failed: ${e.message}")

@@ -49,6 +49,28 @@ const pointSchema = (required = false) => ({
   },
 });
 
+/**
+ * Is this pair usable as a coordinate?
+ *
+ * `typeof x === "number"` is NOT enough, and that was the actual hole:
+ * NaN is a number, and every range comparison against NaN is false, so
+ * `Math.abs(NaN) > 90` passes a bounds check that looks airtight. A NaN
+ * then reaches the 2dsphere index, which rejects it, and reaches Redis,
+ * where JSON.stringify turns it into null — a position that exists but has
+ * no location.
+ *
+ * Number.isFinite is the check that actually holds: it rejects NaN and both
+ * infinities, and it does not coerce strings the way the global isFinite
+ * does.
+ */
+const isValidLatLng = (lat, lng) =>
+  Number.isFinite(lat) &&
+  Number.isFinite(lng) &&
+  lat >= -90 &&
+  lat <= 90 &&
+  lng >= -180 &&
+  lng <= 180;
+
 // Build a GeoJSON point from the lat/lng order humans and GPS APIs use.
 const toPoint = (lat, lng) => ({
   type: "Point",
@@ -76,4 +98,4 @@ const distanceMeters = (a, b) => {
   return 2 * R * Math.asin(Math.sqrt(s));
 };
 
-module.exports = { pointSchema, toPoint, toLatLng, distanceMeters };
+module.exports = { pointSchema, toPoint, toLatLng, distanceMeters, isValidLatLng };

@@ -70,7 +70,7 @@ class TripRepository @Inject constructor(
     suspend fun getMyTrips(): NetworkResult<List<Trip>> {
         Log.d(TAG, "Fetching my trips")
         return when (val result = safeApiCall { tripApi.getMyTrips() }) {
-            is NetworkResult.Success -> NetworkResult.Success(result.data.data.trips)
+            is NetworkResult.Success -> NetworkResult.Success(result.data.data.trips.orEmpty())
             is NetworkResult.Error -> result
             NetworkResult.Loading -> NetworkResult.Loading
         }
@@ -201,7 +201,7 @@ class TripRepository @Inject constructor(
 
     suspend fun getVehicles(tripId: String): NetworkResult<List<Vehicle>> {
         return when (val result = safeApiCall { tripApi.getVehicles(tripId) }) {
-            is NetworkResult.Success -> NetworkResult.Success(result.data.data.vehicles)
+            is NetworkResult.Success -> NetworkResult.Success(result.data.data.vehicles.orEmpty())
             is NetworkResult.Error -> result
             NetworkResult.Loading -> NetworkResult.Loading
         }

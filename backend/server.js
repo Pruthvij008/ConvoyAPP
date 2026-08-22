@@ -85,7 +85,23 @@ const shutdown = async (signal) => {
 process.on("SIGINT", () => shutdown("SIGINT"));
 process.on("SIGTERM", () => shutdown("SIGTERM"));
 
+// Logged loudly, but NOT fatal.
+//
+// This used to close the server and exit. That is the textbook answer, and
+// it is the wrong one for this service: a convoy is mid-drive, the free
+// tier takes the better part of a minute to cold-start, and the most
+// likely source of a stray rejection is a momentary Redis blip — which
+// everything here already degrades around, because Redis holds only live
+// positions while Mongo holds everything durable.
+//
+// Dropping six people's live map to be pure about an unhandled promise is
+// a bad trade. The realistic sources have been closed off at the socket
+// layer, where every handler is now wrapped; anything that still reaches
+// here is a bug we want to SEE in the logs, not one worth an outage over.
+//
+// uncaughtException above stays fatal, because that genuinely does leave
+// the process in an unknown state.
 process.on("unhandledRejection", (err) => {
-  console.log("UNHANDLED REJECTION 💥", err.name, err.message);
-  server.close(() => process.exit(1));
+  console.error("UNHANDLED REJECTION 💥", err?.name, err?.message);
+  console.error(err?.stack);
 });
