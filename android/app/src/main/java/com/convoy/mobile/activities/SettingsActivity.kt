@@ -230,6 +230,21 @@ private fun SettingsScreen(
                     }
                 }
 
+                // The ViewModel has been reporting upload failures all along
+                // and this screen threw them away, so a photo that did not
+                // upload simply never appeared and never said why. That was
+                // worst while the upload was broken outright: the spinner
+                // stopped, nothing changed, and the app stayed silent.
+                photoError?.takeIf { it.isNotBlank() }?.let {
+                    Spacer(Modifier.height(12.dp))
+                    Text(
+                        text = it,
+                        color = colors.red,
+                        fontSize = 12.5.sp,
+                        lineHeight = 17.sp,
+                    )
+                }
+
                 Spacer(Modifier.height(16.dp))
 
                 Text(

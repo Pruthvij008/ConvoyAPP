@@ -720,7 +720,6 @@ private fun ActiveTripScreen(
             ConvoySheet(
                 viewModel = viewModel,
                 markerViewModel = markerViewModel,
-                paused = paused,
                 modifier = Modifier.align(Alignment.BottomCenter),
                 onOpenTripControls = { showTripControls = true },
                 onNavigateToDestination = {
@@ -953,7 +952,6 @@ private fun CircleIconButton(glyph: String, onClick: () -> Unit) {
 private fun ConvoySheet(
     viewModel: MapViewModel,
     markerViewModel: MarkerViewModel,
-    paused: Boolean,
     modifier: Modifier = Modifier,
     onOpenTripControls: () -> Unit,
     onNavigateToDestination: () -> Unit,
