@@ -1,0 +1,68 @@
+# systemd unit for the Convoy API.
+#
+# This is what replaces Render's supervisor: it starts the app on boot,
+# restarts it if it dies, and captures its output into the journal. Without
+# it, a reboot of the VM leaves the convoy with no server and no sign of why.
+#
+# Install:
+#   sudo cp convoy-api.service /etc/systemd/system/
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now convoy-api
+#
+# Watch it:
+#   sudo systemctl status convoy-api
+#   sudo journalctl -u convoy-api -f
+
+[Unit]
+Description=Convoy API (Node + Socket.IO)
+Documentation=https://github.com/Pruthvij008/ConvoyAPP
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=convoy
+Group=convoy
+WorkingDirectory=/opt/convoy/backend
+
+# config.env is NOT in git and holds every secret. Loaded by dotenv inside
+# server.js, so nothing needs to be duplicated here.
+ExecStart=/usr/bin/node server.js
+
+# Always come back. `always` rather than `on-failure` because a clean exit
+# is still an outage for anyone mid-drive — there is no such thing as this
+# process being deliberately finished while the VM is up.
+Restart=always
+RestartSec=3
+
+# Don't let a crash-loop hammer Mongo and Atlas. Five restarts inside a
+# minute and systemd stops trying, which is the signal to go and look.
+StartLimitIntervalSec=60
+StartLimitBurst=5
+
+Environment=NODE_ENV=production
+# Nginx proxies to this. Bound to loopback by nginx's proxy_pass, so the
+# port is never exposed publicly even if the firewall were wrong.
+Environment=PORT=3000
+
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=convoy-api
+
+# ── Hardening ────────────────────────────────────────────────────
+# This process is reachable from the internet and holds a database
+# credential, a JWT secret and Cloudinary keys. It has no business touching
+# anything outside its own directory.
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/opt/convoy/backend
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+LockPersonality=true
+
+[Install]
+WantedBy=multi-user.target
