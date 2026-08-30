@@ -30,10 +30,6 @@ local.properties
 *.swp
 .vscode/
 
-# ── Tooling ──────────────────────────────────────────────────────
-# Local agent/editor settings, not part of the project.
-.claude/
-
 # ── OS ───────────────────────────────────────────────────────────
 .DS_Store
 Thumbs.db
