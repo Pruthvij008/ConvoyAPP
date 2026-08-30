@@ -72,7 +72,7 @@ which is exactly what you want when moving to a new environment.
 1. Sign up at <https://render.com> with your GitHub account
 2. **New → Blueprint**, choose the `ConvoyAPP` repo, branch **`hosting`**
 
-   Render reads `backend/render.yaml` and creates both the web service and
+   Render reads `render.yaml` at the repo root and creates both the web service and
    the Redis instance, already wired together.
 3. It will prompt for the secrets marked `sync: false`:
 

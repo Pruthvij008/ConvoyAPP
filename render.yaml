@@ -1,5 +1,11 @@
 # Render blueprint for the Convoy backend.
 #
+# This file MUST live at the repository root. Render looks for render.yaml
+# there and nowhere else, so while it sat in backend/ the dashboard simply
+# reported that the repo had no blueprint — which reads like the repo is
+# wrong rather than the path. `rootDir: backend` below is what points the
+# build at the right directory.
+#
 # Two services: the Node app and a Redis-compatible key-value store.
 # MongoDB is NOT here — Render has no managed MongoDB, so the database
 # lives on MongoDB Atlas and arrives through DATABASE.
