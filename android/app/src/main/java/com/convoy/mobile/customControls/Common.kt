@@ -107,6 +107,15 @@ fun VehicleRosterRow(
     distanceText: String? = null,
     etaText: String? = null,
     isYou: Boolean = false,
+    /**
+     * Directions, offered separately from the row itself.
+     *
+     * Tapping the row means "show me where they are", which is the question
+     * asked twenty times a drive. Routing to them is a different and much
+     * rarer decision, so it gets its own target rather than hijacking every
+     * tap on the roster.
+     */
+    onNavigate: (() -> Unit)? = null,
     trailing: (@Composable () -> Unit)? = null,
     onClick: (() -> Unit)? = null,
 ) {
@@ -150,6 +159,32 @@ fun VehicleRosterRow(
                     Text(text = it, color = colors.muted, fontSize = 12.5.sp, maxLines = 1)
                 }
             }
+
+            // Why they have stopped, on its own line and in full.
+            //
+            // This used to be squeezed into the right-hand column, which is
+            // styled for numbers — so "Chai / Break" arrived clipped, in a
+            // tabular font, next to a distance. The single most useful fact
+            // about a car in the roster was the hardest thing to read.
+            vehicle.currentStatus?.let { status ->
+                val waiting = status.waitingForGroup
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    modifier = Modifier.padding(top = 4.dp),
+                ) {
+                    Text(text = status.icon ?: "✋", fontSize = 13.sp)
+                    Text(
+                        text = status.label.orEmpty().ifBlank { "Stopped" },
+                        color = if (waiting) colors.amber else colors.muted,
+                        fontSize = 12.5.sp,
+                        fontWeight = FontWeight.Medium,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                    if (waiting) Chip("wait", ChipTone.WARN)
+                }
+            }
         }
 
         if (trailing != null) {
@@ -169,6 +204,20 @@ fun VehicleRosterRow(
                     color = colors.dim,
                     fontSize = 11.5.sp,
                 )
+            }
+        }
+
+        // Its own target, sized for a thumb, so directions never depend on
+        // hitting the row exactly.
+        if (onNavigate != null && !isYou) {
+            Box(
+                modifier = Modifier
+                    .size(38.dp)
+                    .background(colors.surface2, CircleShape)
+                    .clickableOnce(onClick = onNavigate),
+                contentAlignment = Alignment.Center,
+            ) {
+                Text(text = "➤", color = colors.route, fontSize = 14.sp)
             }
         }
     }

@@ -16,6 +16,7 @@ const tripRouter = require("./routes/tripRoute");
 const markerRouter = require("./routes/markerRoute");
 const placesRouter = require("./routes/placesRoute");
 const publicRouter = require("./routes/publicRoute");
+const joinRouter = require("./routes/joinRoute");
 
 const app = express();
 
@@ -96,6 +97,11 @@ app.use("/api/v1/markers", markerRouter);
 app.use("/api/v1/places", placesRouter);
 // No auth: the share token is the credential (see publicRoute.js).
 app.use("/api/v1/live", publicRouter);
+
+// The shareable join link. Deliberately at the ROOT, not under /api/v1 —
+// this is a page a person opens from WhatsApp, and the shorter the link
+// the less likely a messenger is to mangle or truncate it.
+app.use("/j", joinRouter);
 
 // ── 404 + global error handler ───────────────────────────────────
 app.all("*", (req, res, next) =>

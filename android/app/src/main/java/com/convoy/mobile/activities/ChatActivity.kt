@@ -18,10 +18,8 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.imePadding
-import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -56,6 +54,8 @@ import com.convoy.mobile.customControls.TopSnackbar
 import com.convoy.mobile.customControls.clickableOnce
 import com.convoy.mobile.dataModel.message.Message
 import com.convoy.mobile.dataModel.message.QuickMessage
+import com.convoy.mobile.customControls.safeTop
+import com.convoy.mobile.customControls.safeBottom
 import com.convoy.mobile.ui.theme.ConvoyTheme
 import com.convoy.mobile.utility.Constants
 import com.convoy.mobile.viewModels.ChatViewModel
@@ -140,7 +140,7 @@ private fun ChatScreen(viewModel: ChatViewModel, onBack: () -> Unit) {
         modifier = Modifier
             .fillMaxSize()
             .background(colors.ground)
-            .statusBarsPadding()
+            .safeTop()
             .imePadding(),
     ) {
         Row(
@@ -253,7 +253,7 @@ private fun ChatScreen(viewModel: ChatViewModel, onBack: () -> Unit) {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .navigationBarsPadding()
+                .safeBottom()
                 .padding(horizontal = 16.dp, vertical = 10.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(10.dp),

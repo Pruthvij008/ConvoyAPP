@@ -12,7 +12,6 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
@@ -42,6 +41,7 @@ import com.convoy.mobile.customControls.GhostButton
 import com.convoy.mobile.customControls.SectionLabel
 import com.convoy.mobile.customControls.SurfaceCard
 import com.convoy.mobile.customControls.clickableOnce
+import com.convoy.mobile.customControls.safeTop
 import com.convoy.mobile.ui.theme.ConvoyTheme
 import com.convoy.mobile.ui.theme.ThemeMode
 import dagger.hilt.android.AndroidEntryPoint
@@ -132,7 +132,7 @@ private fun SettingsScreen(
         modifier = Modifier
             .fillMaxSize()
             .background(colors.ground)
-            .statusBarsPadding()
+            .safeTop()
             .verticalScroll(rememberScrollState()),
     ) {
         Row(

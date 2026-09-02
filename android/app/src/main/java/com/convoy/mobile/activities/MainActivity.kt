@@ -26,10 +26,8 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -74,6 +72,8 @@ import com.convoy.mobile.customControls.clickableOnce
 import com.convoy.mobile.dataModel.trip.TripStatus
 import com.convoy.mobile.dataModel.vehicle.Freshness
 import com.convoy.mobile.service.LocationTrackingService
+import com.convoy.mobile.customControls.safeTop
+import com.convoy.mobile.customControls.safeBottom
 import com.convoy.mobile.ui.theme.ConvoyTheme
 import com.convoy.mobile.ui.theme.SectionLabelStyle
 import com.convoy.mobile.utility.Constants
@@ -216,7 +216,7 @@ private fun MainScreen(
             .background(colors.ground),
     ) {
         if (trip == null || viewModel.tripFinished) {
-            Column(modifier = Modifier.fillMaxSize().statusBarsPadding()) {
+            Column(modifier = Modifier.fillMaxSize().safeTop()) {
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -354,6 +354,12 @@ private fun ActiveTripScreen(
     // roster, reachable from the header and from the roster both.
     var showTripControls by remember { mutableStateOf(false) }
 
+    // "Show me where they are." A counter rather than a boolean, so tapping
+    // the same car twice re-centres twice instead of doing nothing the
+    // second time.
+    var focusVehicleId by remember { mutableStateOf<String?>(null) }
+    var focusKey by remember { mutableStateOf(0) }
+
     // Navigation view — tilted, following, turning with you. Entered
     // deliberately from the directions sheet and left deliberately, because
     // it takes over the whole screen and the camera with it.
@@ -397,12 +403,20 @@ private fun ActiveTripScreen(
     if (critical != null) {
         val raisedBy = viewModel.vehicles
             .firstOrNull { it.id == critical.vehicleId }?.label
+        // Matched on the participant first and the vehicle second: a
+        // passenger raising an SOS from a car they do not drive is still
+        // the person in trouble, not a responder.
+        val sosIsMine = (critical.participantId != null &&
+            critical.participantId == viewModel.me?.id) ||
+            (critical.vehicleId != null && critical.vehicleId == viewModel.myVehicleId)
+
         SosOverlay(
             alert = critical,
             raisedByLabel = raisedBy,
             distanceText = null,
             canClear = true,
             isSaving = alertViewModel.isSaving,
+            isMine = sosIsMine,
             onNavigate = {
                 critical.location?.latLng()?.let { (alertLat, alertLng) ->
                     navTarget = NavTarget(
@@ -513,6 +527,8 @@ private fun ActiveTripScreen(
             fitRouteKey = fitRouteKey,
             navigationMode = navigating,
             myVehicleId = viewModel.myVehicleId,
+            focusVehicleId = focusVehicleId,
+            focusKey = focusKey,
             // Tapping a car on the map asks the same question as tapping it
             // in the roster — one answer, wherever you tap it.
             onVehicleTapped = { vehicle ->
@@ -564,7 +580,7 @@ private fun ActiveTripScreen(
         Column(
             modifier = Modifier
                 .align(Alignment.TopCenter)
-                .statusBarsPadding()
+                .safeTop()
                 .padding(horizontal = 14.dp, vertical = 10.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
@@ -739,6 +755,10 @@ private fun ActiveTripScreen(
                 markerViewModel = markerViewModel,
                 modifier = Modifier.align(Alignment.BottomCenter),
                 onOpenTripControls = { showTripControls = true },
+                onLocateVehicle = { vehicle ->
+                    focusVehicleId = vehicle.id
+                    focusKey += 1
+                },
                 onNavigateToDestination = {
                     trip.destination?.latLng()?.let { (destLat, destLng) ->
                         navTarget = NavTarget(
@@ -931,7 +951,7 @@ private fun ActiveTripScreen(
             Row(
                 modifier = Modifier
                     .align(Alignment.TopCenter)
-                    .statusBarsPadding()
+                    .safeTop()
                     .padding(top = 120.dp, start = 14.dp, end = 14.dp)
                     .fillMaxWidth()
                     .background(colors.route.copy(alpha = 0.94f), RoundedCornerShape(14.dp))
@@ -1028,6 +1048,7 @@ private fun ConvoySheet(
     onOpenTripControls: () -> Unit,
     onNavigateToDestination: () -> Unit,
     onNavigateToVehicle: (com.convoy.mobile.dataModel.vehicle.Vehicle) -> Unit,
+    onLocateVehicle: (com.convoy.mobile.dataModel.vehicle.Vehicle) -> Unit,
 ) {
     val colors = ConvoyTheme.colors
     val sheetShape = RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp)
@@ -1050,7 +1071,7 @@ private fun ConvoySheet(
                     stiffness = Spring.StiffnessMediumLow,
                 )
             )
-            .navigationBarsPadding()
+            .safeBottom()
             .padding(bottom = 14.dp),
     ) {
         // The grab handle is now decoration only. It used to toggle a
@@ -1132,6 +1153,19 @@ private fun ConvoySheet(
                 )
             }
             val isMe = vehicle.id == viewModel.myVehicleId
+            // How far away they actually are, measured from OUR live fix.
+            // The column used to carry the stop label instead, so the roster
+            // never answered the question it most looks like it is answering.
+            val gap = if (isMe) null else {
+                val mine = viewModel.myFix?.let { it.lat to it.lng }
+                    ?: viewModel.vehicles
+                        .firstOrNull { it.id == viewModel.myVehicleId }?.position?.latLng()
+                val theirs = vehicle.position?.latLng()
+                if (mine != null && theirs != null) {
+                    Geo.distanceMeters(mine.first, mine.second, theirs.first, theirs.second)
+                } else null
+            }
+
             VehicleRosterRow(
                 vehicle = vehicle,
                 subtitle = viewModel.participants
@@ -1139,11 +1173,19 @@ private fun ConvoySheet(
                     .joinToString(", ") { it.displayName }
                     .ifBlank { null },
                 isYou = isMe,
-                distanceText = vehicle.currentStatus?.label,
-                etaText = if (vehicle.hasActiveStop) "stopped" else null,
-                // Tapping someone else's car offers directions to it — the
-                // recovery path when a friend stops or takes a wrong turn.
-                onClick = if (!isMe && vehicle.position != null) {
+                distanceText = gap?.let { Formatters.distance(it) },
+                etaText = when {
+                    vehicle.hasActiveStop -> "stopped"
+                    vehicle.freshness == Freshness.LOST -> "last seen"
+                    else -> Formatters.speed(vehicle.lastKnown?.speedKmh)
+                },
+                // Tapping shows them on the map — the question asked twenty
+                // times a drive. Directions are the arrow, because routing
+                // to someone is a much rarer and heavier decision.
+                onClick = if (vehicle.position != null) {
+                    { onLocateVehicle(vehicle) }
+                } else null,
+                onNavigate = if (!isMe && vehicle.position != null) {
                     { onNavigateToVehicle(vehicle) }
                 } else null,
             )

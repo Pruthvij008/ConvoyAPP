@@ -68,6 +68,13 @@ services:
       - key: JWT_EXPIRESIN
         value: 90d
 
+      # This API's own public origin. It serves the join page at /j, so
+      # this is what a shared invite link is built from — without it the
+      # link falls back to a dev-server address and is dead for everyone
+      # who receives it.
+      - key: PUBLIC_BASE_URL
+        value: https://convoy-api.onrender.com
+
   # "keyvalue", not "redis" — redis is a deprecated alias and newer
   # blueprint validation rejects it.
   - type: keyvalue

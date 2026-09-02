@@ -16,6 +16,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.convoy.mobile.customControls.safeAll
 import com.convoy.mobile.ui.theme.ConvoyTheme
 import com.convoy.mobile.viewModels.AuthViewModel
 import dagger.hilt.android.AndroidEntryPoint
@@ -52,7 +53,8 @@ private fun SplashScreen() {
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(colors.ground),
+            .background(colors.ground)
+            .safeAll(),
         contentAlignment = Alignment.Center,
     ) {
         Column(horizontalAlignment = Alignment.CenterHorizontally) {

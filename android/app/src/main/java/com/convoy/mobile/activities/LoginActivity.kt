@@ -17,6 +17,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.LocalTextStyle
 import androidx.compose.material3.Text
@@ -41,6 +42,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.convoy.mobile.customControls.PrimaryButton
 import com.convoy.mobile.customControls.clickableOnce
+import com.convoy.mobile.customControls.safeAll
 import com.convoy.mobile.ui.theme.ConvoyTheme
 import com.convoy.mobile.viewModels.AuthViewModel
 import dagger.hilt.android.AndroidEntryPoint
@@ -77,7 +79,13 @@ private fun LoginScreen(viewModel: AuthViewModel, onDone: () -> Unit) {
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(colors.ground),
+            .background(colors.ground)
+            // This screen had NO insets at all. The app draws edge to edge,
+            // so the heading sat under the status bar and the sign-in button
+            // sat under the gesture pill — where the system eats the touch,
+            // so it did not merely look wrong, it stopped responding.
+            .safeAll()
+            .imePadding(),
         contentAlignment = Alignment.Center,
     ) {
         Column(

@@ -105,6 +105,16 @@ object Constants {
     const val MAP_STYLE_NIGHT = "https://tiles.openfreemap.org/styles/dark"
     const val MAP_DEFAULT_ZOOM = 13.5
 
+    /**
+     * Zoom used when the roster asks to be shown a particular car.
+     *
+     * Closer than the convoy overview, because the question is "where
+     * exactly are they" — but not the navigation zoom, which is so tight
+     * you lose the surrounding roads and cannot tell where they are
+     * relative to you.
+     */
+    const val MAP_FOCUS_ZOOM = 15.5
+
     // Chosen search results zoom in further than the default. A result is a
     // specific place, and dropping the camera at city zoom would leave the
     // user unsure the pin actually landed on what they picked.

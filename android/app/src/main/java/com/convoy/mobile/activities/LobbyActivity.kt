@@ -13,9 +13,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
@@ -38,6 +36,8 @@ import com.convoy.mobile.customControls.TopSnackbar
 import com.convoy.mobile.customControls.clickableOnce
 import com.convoy.mobile.dataModel.vehicle.Participant
 import com.convoy.mobile.dataModel.vehicle.Vehicle
+import com.convoy.mobile.customControls.safeTop
+import com.convoy.mobile.customControls.safeBottom
 import com.convoy.mobile.ui.theme.ConvoyTheme
 import com.convoy.mobile.utility.Constants
 import com.convoy.mobile.viewModels.LobbyViewModel
@@ -119,7 +119,7 @@ private fun LobbyScreen(
         modifier = Modifier
             .fillMaxSize()
             .background(colors.ground)
-            .statusBarsPadding(),
+            .safeTop(),
     ) {
         // ── Header ──────────────────────────────────────────────
         Row(
@@ -196,7 +196,7 @@ private fun LobbyScreen(
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(horizontal = 20.dp)
-                .navigationBarsPadding()
+                .safeBottom()
                 .padding(bottom = 20.dp),
         ) {
             viewModel.startBlockedMessage?.let { message ->

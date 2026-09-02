@@ -16,11 +16,9 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.imePadding
-import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -52,6 +50,8 @@ import com.convoy.mobile.customControls.PickerMapView
 import com.convoy.mobile.customControls.PrimaryButton
 import com.convoy.mobile.customControls.clickableOnce
 import com.convoy.mobile.dataModel.place.Place
+import com.convoy.mobile.customControls.safeTop
+import com.convoy.mobile.customControls.safeBottom
 import com.convoy.mobile.ui.theme.ConvoyTheme
 import com.convoy.mobile.viewModels.PlaceSearchViewModel
 import dagger.hilt.android.AndroidEntryPoint
@@ -183,7 +183,7 @@ private fun PickDestinationScreen(
         Column(
             modifier = Modifier
                 .align(Alignment.TopCenter)
-                .statusBarsPadding()
+                .safeTop()
                 .padding(horizontal = 14.dp, vertical = 10.dp)
                 .fillMaxWidth(),
         ) {
@@ -304,7 +304,7 @@ private fun PickDestinationScreen(
                         colors.surface,
                         RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp),
                     )
-                    .navigationBarsPadding()
+                    .safeBottom()
                     .imePadding()
                     .padding(20.dp),
             ) {

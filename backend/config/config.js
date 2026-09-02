@@ -65,9 +65,14 @@ module.exports = {
     // WhatsApp; tapping it opens the app straight into the join screen.
     // In production this is an https:// link with Android App Links so it
     // opens the app rather than a browser.
+    // PUBLIC_BASE_URL is this API's own public origin, and it is the right
+    // default because the API now SERVES the join page at /j. The old
+    // default pointed at a front-end dev server, so every link a host
+    // shared in production read "http://localhost:5173/j/..." and was dead
+    // on arrival for everyone who received it.
     joinLinkBase:
       process.env.TRIP_JOIN_LINK_BASE ||
-      `${process.env.FRONTEND_URL || "http://localhost:5173"}/j`,
+      `${process.env.PUBLIC_BASE_URL || process.env.FRONTEND_URL || "http://localhost:3000"}/j`,
 
     // Join code: uppercase, ambiguous characters (0/O, 1/I/L) removed so a
     // code read out over a phone call is unambiguous.

@@ -96,6 +96,15 @@ fun ConvoyMapView(
      * dragged it away — what the "re-centre" button does.
      */
     recentreKey: Int = 0,
+    /**
+     * "Show me where they are" — the roster tapping a car.
+     *
+     * A one-shot look rather than [followVehicleId], which locks the camera
+     * on and keeps re-centring. Bumping [focusKey] is what triggers it, so
+     * asking for the same car twice works twice.
+     */
+    focusVehicleId: String? = null,
+    focusKey: Int = 0,
     onVehicleTapped: (Vehicle) -> Unit = {},
 ) {
     val context = LocalContext.current
@@ -124,6 +133,7 @@ fun ConvoyMapView(
     val hasAutoFramed = remember { booleanArrayOf(false) }
     val userMovedCamera = remember { booleanArrayOf(false) }
     val appliedRecentre = remember { intArrayOf(0) }
+    val appliedFocus = remember { intArrayOf(0) }
 
     // MapView is a plain Android view with its own lifecycle, and it leaks
     // badly if those callbacks are skipped.
@@ -160,8 +170,9 @@ fun ConvoyMapView(
                     aimCamera(
                         map, vehicles, routePoints, followVehicleId, myVehicleId,
                         destinationLat, destinationLng, navigationMode,
-                        fitRouteKey, recentreKey,
-                        appliedFitRoute, appliedRecentre, hasAutoFramed, userMovedCamera,
+                        fitRouteKey, recentreKey, focusVehicleId, focusKey,
+                        appliedFitRoute, appliedRecentre, appliedFocus,
+                        hasAutoFramed, userMovedCamera,
                     )
                     return@getMapAsync
                 }
@@ -641,11 +652,38 @@ private fun aimCamera(
     navigationMode: Boolean,
     fitRouteKey: Int,
     recentreKey: Int,
+    focusVehicleId: String?,
+    focusKey: Int,
     appliedFitRoute: IntArray,
     appliedRecentre: IntArray,
+    appliedFocus: IntArray,
     hasAutoFramed: BooleanArray,
     userMovedCamera: BooleanArray,
 ) {
+    // "Show me where they are" wins over everything, including navigation:
+    // it is an explicit request made a moment ago, and anything that
+    // overrode it would make the roster feel broken.
+    if (appliedFocus[0] != focusKey) {
+        appliedFocus[0] = focusKey
+        if (focusKey > 0 && focusVehicleId != null) {
+            val target = vehicles.firstOrNull { it.id == focusVehicleId }?.position?.latLng()
+            if (target != null) {
+                map.animateCamera(
+                    CameraUpdateFactory.newLatLngZoom(
+                        LatLng(target.first, target.second),
+                        Constants.MAP_FOCUS_ZOOM,
+                    ),
+                    650,
+                )
+                // The camera is now deliberately somewhere the user chose,
+                // so navigation must not immediately drag it back.
+                userMovedCamera[0] = true
+                hasAutoFramed[0] = true
+                return
+            }
+        }
+    }
+
     if (navigationMode) {
         // Navigation owns the camera outright: it re-aims on every position
         // update so the view keeps up with the car. But only while the user

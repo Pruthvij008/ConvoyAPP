@@ -10,10 +10,8 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
@@ -152,6 +150,16 @@ fun SosOverlay(
     distanceText: String?,
     canClear: Boolean,
     isSaving: Boolean,
+    /**
+     * True when YOU are the one who raised this.
+     *
+     * Without it the screen offered the person in trouble "Navigate to
+     * them" and "I'm on my way" — directions to their own position, and a
+     * button to tell the convoy they were coming to help themselves. What
+     * they actually need to see is that the message got out and who is
+     * responding.
+     */
+    isMine: Boolean = false,
     onNavigate: () -> Unit,
     onCall: (() -> Unit)?,
     onAcknowledge: () -> Unit,
@@ -173,7 +181,7 @@ fun SosOverlay(
                     )
                 )
             )
-            .statusBarsPadding(),
+            .safeTop(),
     ) {
         Column(
             modifier = Modifier
@@ -193,7 +201,11 @@ fun SosOverlay(
             }
 
             Text(
-                text = raisedByLabel?.let { "$it needs help" } ?: "Someone needs help",
+                text = when {
+                    isMine -> "Your SOS is out"
+                    raisedByLabel != null -> "$raisedByLabel needs help"
+                    else -> "Someone needs help"
+                },
                 color = colors.text,
                 fontSize = 28.sp,
                 lineHeight = 33.sp,
@@ -201,6 +213,25 @@ fun SosOverlay(
                 textAlign = TextAlign.Center,
                 modifier = Modifier.padding(top = 22.dp),
             )
+
+            // The one thing the person in trouble needs to know: did anyone
+            // hear it. A count beats silence, and silence is what this
+            // screen used to give them.
+            if (isMine) {
+                val coming = alert.acknowledgedBy?.size ?: 0
+                Text(
+                    text = when (coming) {
+                        0 -> "Everyone in the convoy has been alerted. Waiting for a reply…"
+                        1 -> "1 person is on their way"
+                        else -> "$coming people are on their way"
+                    },
+                    color = if (coming > 0) colors.route else colors.muted,
+                    fontSize = 15.sp,
+                    fontWeight = if (coming > 0) FontWeight.SemiBold else FontWeight.Normal,
+                    textAlign = TextAlign.Center,
+                    modifier = Modifier.padding(top = 10.dp),
+                )
+            }
 
             distanceText?.let {
                 Text(
@@ -240,43 +271,63 @@ fun SosOverlay(
             modifier = Modifier
                 .align(Alignment.BottomCenter)
                 .fillMaxWidth()
-                .navigationBarsPadding()
+                .safeBottom()
                 .padding(horizontal = 26.dp, vertical = 26.dp),
         ) {
-            if (lat != null && lng != null) {
-                DangerButton(text = "Navigate to them", onClick = onNavigate)
-                Spacer(Modifier.height(10.dp))
-            }
-
-            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                if (onCall != null) {
-                    Box(modifier = Modifier.weight(1f)) {
-                        SecondaryButton(text = "Call", onClick = onCall)
-                    }
-                }
-                Box(modifier = Modifier.weight(1f)) {
-                    SecondaryButton(text = "I'm on my way", onClick = onAcknowledge)
-                }
-            }
-
-            if (canClear) {
-                Spacer(Modifier.height(10.dp))
-                GhostButton(
-                    text = "Everything's fine — clear this",
+            if (isMine) {
+                // Nothing to navigate to and nobody to tell you are coming.
+                // The only action that makes sense from here is standing it
+                // down, and it is phrased as the statement it actually is.
+                DangerButton(
+                    text = "I'm OK — cancel this",
                     enabled = !isSaving,
                     onClick = onClear,
                 )
-            }
+                Text(
+                    text = "Cancelling clears the alert on everyone's phone. " +
+                        "Only do it once you are actually fine.",
+                    color = colors.dim,
+                    fontSize = 11.5.sp,
+                    lineHeight = 16.sp,
+                    textAlign = TextAlign.Center,
+                    modifier = Modifier.fillMaxWidth().padding(top = 14.dp),
+                )
+            } else {
+                if (lat != null && lng != null) {
+                    DangerButton(text = "Navigate to them", onClick = onNavigate)
+                    Spacer(Modifier.height(10.dp))
+                }
 
-            Text(
-                text = "This stays until someone clears it. Driving on doesn't " +
-                    "end an emergency.",
-                color = colors.dim,
-                fontSize = 11.5.sp,
-                lineHeight = 16.sp,
-                textAlign = TextAlign.Center,
-                modifier = Modifier.fillMaxWidth().padding(top = 14.dp),
-            )
+                Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    if (onCall != null) {
+                        Box(modifier = Modifier.weight(1f)) {
+                            SecondaryButton(text = "Call", onClick = onCall)
+                        }
+                    }
+                    Box(modifier = Modifier.weight(1f)) {
+                        SecondaryButton(text = "I'm on my way", onClick = onAcknowledge)
+                    }
+                }
+
+                if (canClear) {
+                    Spacer(Modifier.height(10.dp))
+                    GhostButton(
+                        text = "Everything's fine — clear this",
+                        enabled = !isSaving,
+                        onClick = onClear,
+                    )
+                }
+
+                Text(
+                    text = "This stays until someone clears it. Driving on doesn't " +
+                        "end an emergency.",
+                    color = colors.dim,
+                    fontSize = 11.5.sp,
+                    lineHeight = 16.sp,
+                    textAlign = TextAlign.Center,
+                    modifier = Modifier.fillMaxWidth().padding(top = 14.dp),
+                )
+            }
         }
     }
 }

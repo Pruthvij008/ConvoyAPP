@@ -13,7 +13,6 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Text
@@ -39,6 +38,7 @@ import com.convoy.mobile.customControls.GhostButton
 import com.convoy.mobile.customControls.PrimaryButton
 import com.convoy.mobile.customControls.SurfaceCard
 import com.convoy.mobile.customControls.clickableOnce
+import com.convoy.mobile.customControls.safeTop
 import com.convoy.mobile.ui.theme.ConvoyTheme
 import com.convoy.mobile.utility.Constants
 import com.convoy.mobile.viewModels.TripViewModel
@@ -128,7 +128,7 @@ private fun JoinTripScreen(
         modifier = Modifier
             .fillMaxSize()
             .background(colors.ground)
-            .statusBarsPadding()
+            .safeTop()
             .padding(horizontal = 24.dp),
     ) {
         Text(
