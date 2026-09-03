@@ -22,7 +22,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
@@ -32,6 +32,9 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextField
 import androidx.compose.material3.TextFieldDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.derivedStateOf
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -143,9 +146,23 @@ private fun ChatScreen(viewModel: ChatViewModel, onBack: () -> Unit) {
     val listState = rememberLazyListState()
     val keyboard = LocalSoftwareKeyboardController.current
 
-    // New messages scroll into view; reading older ones is a deliberate scroll.
+    // New messages scroll into view — but only if you were already at the
+    // bottom, or the message is your own.
+    //
+    // Unconditional scrolling meant that scrolling up to re-read what
+    // someone said about the next fuel stop got yanked back to the end the
+    // moment anyone typed. On a group chat during a drive that happens
+    // constantly, and it made reading history practically impossible.
+    val atBottom by remember {
+        derivedStateOf {
+            val last = listState.layoutInfo.visibleItemsInfo.lastOrNull()
+            last == null || last.index >= viewModel.messages.lastIndex - 1
+        }
+    }
     LaunchedEffect(viewModel.messages.size) {
-        if (viewModel.messages.isNotEmpty()) {
+        if (viewModel.messages.isEmpty()) return@LaunchedEffect
+        val mineJustSent = viewModel.messages.lastOrNull()?.senderId == viewModel.myParticipantId
+        if (atBottom || mineJustSent) {
             listState.animateScrollToItem(viewModel.messages.lastIndex)
         }
     }
@@ -209,13 +226,46 @@ private fun ChatScreen(viewModel: ChatViewModel, onBack: () -> Unit) {
                 modifier = Modifier.weight(1f),
                 contentPadding = androidx.compose.foundation.layout.PaddingValues(vertical = 12.dp),
             ) {
-                items(viewModel.messages, key = { it.id }) { message ->
+                itemsIndexed(viewModel.messages, key = { _, m -> m.id }) { index, message ->
+                    val previous = viewModel.messages.getOrNull(index - 1)
+
+                    // A separator whenever the day changes, so a chat that
+                    // spans a two-day trip does not read as one long
+                    // conversation with no sense of when anything happened.
+                    val day = Formatters.dayLabel(message.createdAt)
+                    if (day != null && day != Formatters.dayLabel(previous?.createdAt)) {
+                        Box(
+                            modifier = Modifier.fillMaxWidth().padding(vertical = 10.dp),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            Text(
+                                text = day,
+                                color = colors.dim,
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Medium,
+                                modifier = Modifier
+                                    .background(colors.surface2, RoundedCornerShape(10.dp))
+                                    .padding(horizontal = 12.dp, vertical = 5.dp),
+                            )
+                        }
+                    }
+
+                    // Consecutive messages from one person drop the repeated
+                    // avatar and name. Six replies in a row used to print the
+                    // sender's name six times, which is most of what made the
+                    // thread feel cluttered.
+                    val sameSenderAsPrevious = previous != null &&
+                        previous.senderId == message.senderId &&
+                        !previous.isSystem &&
+                        Formatters.dayLabel(previous.createdAt) == day
+
                     MessageRow(
                         message = message,
                         isMine = message.senderId != null &&
                             message.senderId == viewModel.myParticipantId,
                         isPlaying = message.mediaUrl != null &&
                             message.mediaUrl == viewModel.playingUrl,
+                        grouped = sameSenderAsPrevious,
                         onRetry = { viewModel.retry(message) },
                         onPlayVoice = {
                             message.mediaUrl?.let { viewModel.togglePlayback(it) }
@@ -383,6 +433,8 @@ private fun MessageRow(
     message: Message,
     isMine: Boolean,
     isPlaying: Boolean = false,
+    /** True when the previous message was from the same person on the same day. */
+    grouped: Boolean = false,
     onRetry: () -> Unit,
     onPlayVoice: () -> Unit = {},
 ) {
@@ -391,6 +443,9 @@ private fun MessageRow(
     // A system line ("Pruthvij is on the way") is about the trip, not from a
     // person. Centred and quiet, so it reads as an event rather than as
     // someone talking.
+    // if/else, not an early `return`. This file's own composables document
+    // why twice over: leaving a composable scope early corrupts Compose's
+    // group bookkeeping and crashes the next recomposition.
     if (message.isSystem) {
         Box(
             modifier = Modifier.fillMaxWidth().padding(horizontal = 40.dp, vertical = 8.dp),
@@ -404,8 +459,7 @@ private fun MessageRow(
                 textAlign = TextAlign.Center,
             )
         }
-        return
-    }
+    } else {
 
     Row(
         modifier = Modifier
@@ -417,27 +471,40 @@ private fun MessageRow(
         // Someone else's messages carry an initial. Yours do not — you know
         // who you are, and the avatar column would only cost width.
         if (!isMine) {
-            Box(
-                modifier = Modifier
-                    .size(30.dp)
-                    .background(colors.surface2, CircleShape),
-                contentAlignment = Alignment.Center,
-            ) {
-                Text(
-                    text = message.senderName.take(1).uppercase(),
-                    color = colors.muted,
-                    fontSize = 12.sp,
-                    fontWeight = FontWeight.Bold,
-                )
+            if (grouped) {
+                // The space is still reserved, so a run of replies stays in
+                // one column instead of stepping left under the avatar.
+                Spacer(Modifier.width(38.dp))
+            } else {
+                // Tinted from the sender's own id, so each person keeps one
+                // colour for the whole trip. Every avatar being the same grey
+                // meant a busy thread gave no help telling people apart.
+                val tint = colors.vehicles[
+                    Math.floorMod((message.senderId ?: message.senderName).hashCode(),
+                        colors.vehicles.size)
+                ]
+                Box(
+                    modifier = Modifier
+                        .size(30.dp)
+                        .background(tint.copy(alpha = 0.22f), CircleShape),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Text(
+                        text = message.senderName.take(1).uppercase(),
+                        color = tint,
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Bold,
+                    )
+                }
+                Spacer(Modifier.width(8.dp))
             }
-            Spacer(Modifier.width(8.dp))
         }
 
         Column(
             modifier = Modifier.widthIn(max = 290.dp),
             horizontalAlignment = if (isMine) Alignment.End else Alignment.Start,
         ) {
-            if (!isMine) {
+            if (!isMine && !grouped) {
                 Text(
                     text = message.senderName,
                     color = colors.dim,
@@ -536,21 +603,34 @@ private fun MessageRow(
             // The receipt line, on your own messages only. "Read by 4"
             // matters when you have just told everyone to pull over, and is
             // noise under someone else's reply.
+            val time = Formatters.clockTime(message.createdAt)
             if (isMine) {
+                val receipt = when (message.sendState) {
+                    SendState.SENDING -> "Sending…"
+                    SendState.FAILED -> "Didn't send · tap to retry"
+                    SendState.SENT ->
+                        if (message.readCount > 0) "Read by ${message.readCount}" else "Sent"
+                }
                 Text(
-                    text = when (message.sendState) {
-                        SendState.SENDING -> "Sending…"
-                        SendState.FAILED -> "Didn't send · tap to retry"
-                        SendState.SENT ->
-                            if (message.readCount > 0) "Read by ${message.readCount}" else "Sent"
-                    },
+                    // Folded into one line rather than stacked, so the
+                    // receipt does not push every bubble further apart.
+                    text = listOf(time, receipt).filter { it.isNotBlank() }.joinToString(" · "),
                     color = if (message.sendState == SendState.FAILED) colors.red else colors.dim,
                     fontSize = 10.5.sp,
                     modifier = Modifier.padding(top = 3.dp, end = 4.dp),
                 )
+            } else if (time.isNotBlank()) {
+                Text(
+                    text = time,
+                    color = colors.dim,
+                    fontSize = 10.5.sp,
+                    modifier = Modifier.padding(top = 3.dp, start = 4.dp),
+                )
             }
         }
     }
+
+    } // end of the not-a-system-line branch
 }
 
 @Composable

@@ -51,6 +51,44 @@ object Formatters {
     }
 
     /** Elapsed time for a stop timer: "6 min", "1:24". */
+    /**
+     * The wall-clock time a message was sent, in the phone's own zone.
+     *
+     * Chat carried no timestamps at all, so there was no way to tell a
+     * message sent two minutes ago from one sent two hours ago — which on a
+     * long drive is the difference between "they are just ahead" and "that
+     * was before the last fuel stop".
+     *
+     * java.time is used directly rather than through desugaring: minSdk is
+     * 26, where it is part of the platform.
+     */
+    fun clockTime(iso: String?): String {
+        if (iso.isNullOrBlank()) return ""
+        return runCatching {
+            java.time.Instant.parse(iso)
+                .atZone(java.time.ZoneId.systemDefault())
+                .format(java.time.format.DateTimeFormatter.ofPattern("HH:mm"))
+        }.getOrDefault("")
+    }
+
+    /**
+     * "Today", "Yesterday", or a date — the separator between days in a
+     * conversation that spans a whole trip.
+     */
+    fun dayLabel(iso: String?): String? {
+        if (iso.isNullOrBlank()) return null
+        return runCatching {
+            val zone = java.time.ZoneId.systemDefault()
+            val day = java.time.Instant.parse(iso).atZone(zone).toLocalDate()
+            val today = java.time.LocalDate.now(zone)
+            when (day) {
+                today -> "Today"
+                today.minusDays(1) -> "Yesterday"
+                else -> day.format(java.time.format.DateTimeFormatter.ofPattern("d MMM"))
+            }
+        }.getOrNull()
+    }
+
     fun duration(seconds: Long?): String {
         if (seconds == null) return "—"
         val mins = seconds / 60
