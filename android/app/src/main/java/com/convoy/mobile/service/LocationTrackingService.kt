@@ -12,9 +12,11 @@ import androidx.lifecycle.LifecycleService
 import androidx.lifecycle.lifecycleScope
 import com.convoy.mobile.R
 import com.convoy.mobile.activities.MainActivity
+import com.convoy.mobile.network.SocketEvent
 import com.convoy.mobile.network.SocketManager
 import com.convoy.mobile.utility.Constants
 import com.convoy.mobile.utility.MyLocation
+import com.convoy.mobile.utility.Notifier
 import com.convoy.mobile.utility.PrefsManager
 import com.convoy.mobile.utility.ThemeManager
 import com.google.android.gms.location.FusedLocationProviderClient
@@ -24,6 +26,7 @@ import com.google.android.gms.location.LocationResult
 import com.google.android.gms.location.LocationServices
 import com.google.android.gms.location.Priority
 import dagger.hilt.android.AndroidEntryPoint
+import kotlinx.coroutines.launch
 import javax.inject.Inject
 
 /**
@@ -45,6 +48,15 @@ class LocationTrackingService : LifecycleService() {
     @Inject lateinit var socketManager: SocketManager
     @Inject lateinit var themeManager: ThemeManager
     @Inject lateinit var myLocation: MyLocation
+    @Inject lateinit var notifier: Notifier
+
+    /**
+     * Guarded, because onStartCommand runs again on every restart and on
+     * every re-delivered intent. Without this the service would stack a new
+     * collector each time and notify once per collector — three copies of
+     * every message after two reconnects.
+     */
+    private var watchingEvents = false
 
     private lateinit var fusedClient: FusedLocationProviderClient
 
@@ -108,11 +120,92 @@ class LocationTrackingService : LifecycleService() {
 
         startForeground(Constants.NOTIFICATION_ID_TRACKING, buildNotification())
         socketManager.connect(trip)
+        watchConvoyEvents(trip)
         primeFirstFix()
         requestUpdates(sampleIntervalMs)
 
         // STICKY so Android restarts this if it kills the process mid-trip.
         return START_STICKY
+    }
+
+    /**
+     * Turns socket events into notifications.
+     *
+     * It lives here rather than in a ViewModel because this service is what
+     * holds the socket for the whole trip. A ViewModel exists only while its
+     * screen does, so anything driven from one would notify the user
+     * exclusively at the moments they could already see the screen — which
+     * is precisely when a notification is pointless.
+     */
+    private fun watchConvoyEvents(tripId: String) {
+        if (watchingEvents) return
+        watchingEvents = true
+
+        lifecycleScope.launch {
+            socketManager.events.collect { event ->
+                when (event) {
+                    is SocketEvent.MessageNew -> {
+                        val body = event.payload.optJSONObject("message") ?: return@collect
+                        // Our own message comes back to us too — the server
+                        // broadcasts chat to the whole room including the
+                        // sender, so everyone renders identical ordering.
+                        val senderId = body.optString("senderId")
+                        if (senderId.isNotBlank() && senderId == prefs.activeParticipantId) {
+                            return@collect
+                        }
+                        notifier.message(
+                            tripId = tripId,
+                            from = body.optString("senderName").ifBlank { "Someone" },
+                            body = summarise(body),
+                        )
+                    }
+
+                    is SocketEvent.Sos -> {
+                        val alert = event.payload.optJSONObject("alert") ?: event.payload
+                        notifier.alert(
+                            tripId = tripId,
+                            alertId = alert.optString("_id").ifBlank { "sos" },
+                            title = "SOS from your convoy",
+                            body = alert.optString("message")
+                                .ifBlank { "Someone needs help. Open Convoy." },
+                            critical = true,
+                        )
+                    }
+
+                    is SocketEvent.AlertRaised -> {
+                        val alert = event.payload.optJSONObject("alert") ?: event.payload
+                        val severity = alert.optString("severity")
+                        notifier.alert(
+                            tripId = tripId,
+                            alertId = alert.optString("_id").ifBlank { "alert" },
+                            title = alertTitle(alert.optString("type")),
+                            body = alert.optString("message").ifBlank { "Open Convoy for details." },
+                            critical = severity == "CRITICAL",
+                        )
+                    }
+
+                    else -> Unit
+                }
+            }
+        }
+    }
+
+    /** One line describing a message, whatever kind it is. */
+    private fun summarise(message: org.json.JSONObject): String =
+        when (message.optString("kind")) {
+            "VOICE" -> "🎤 Voice note"
+            "PHOTO" -> "📷 Photo"
+            else -> message.optString("body").ifBlank { "New message" }
+        }
+
+    private fun alertTitle(type: String): String = when (type) {
+        "GAP" -> "A car is falling behind"
+        "OFF_ROUTE" -> "Someone is off route"
+        "STALLED" -> "A car has stopped"
+        "SIGNAL_LOST" -> "Lost signal from a car"
+        "LOW_BATTERY" -> "A phone is running low"
+        "CRASH" -> "Possible crash detected"
+        else -> "Convoy alert"
     }
 
     /**

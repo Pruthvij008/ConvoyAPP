@@ -56,6 +56,18 @@ class ConvoyApplication : Application() {
             setBypassDnd(true)
         }
 
-        manager.createNotificationChannels(listOf(tracking, alerts, critical))
+        // Chat and voice notes. Its own channel so someone who wants the
+        // emergencies but not the chatter can silence one without the other
+        // — which on a long drive is a real preference, not a hypothetical.
+        val messages = NotificationChannel(
+            Constants.CHANNEL_MESSAGES,
+            "Messages",
+            NotificationManager.IMPORTANCE_DEFAULT,
+        ).apply {
+            description = "Chat messages and voice notes from your convoy."
+            enableVibration(true)
+        }
+
+        manager.createNotificationChannels(listOf(tracking, alerts, critical, messages))
     }
 }

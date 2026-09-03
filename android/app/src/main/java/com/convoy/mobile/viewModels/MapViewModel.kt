@@ -378,6 +378,10 @@ class MapViewModel @Inject constructor(
                     consecutiveRejections = 0
                     trip = result.data.trip
                     me = result.data.me
+                    // Persisted so the tracking service can tell our own
+                    // chat messages from everyone else's without a screen
+                    // being open to ask.
+                    prefs.activeParticipantId = result.data.me.id
                     participants = result.data.participants.orEmpty()
                     vehicles = result.data.vehicles.orEmpty()
                     // REST just replaced the list, so re-overlay anything the

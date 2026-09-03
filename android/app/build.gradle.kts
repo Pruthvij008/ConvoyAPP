@@ -41,6 +41,39 @@ android {
         vectorDrawables { useSupportLibrary = true }
     }
 
+    // Release signing, read from local.properties so no keystore or password
+    // ever reaches the repository.
+    //
+    // Without this the release build produces app-release-UNSIGNED.apk,
+    // which Android refuses to install — so a minified build could be
+    // produced and then not actually be usable.
+    //
+    // Create one once:
+    //   keytool -genkey -v -keystore convoy-release.jks -keyalg RSA     //           -keysize 2048 -validity 10000 -alias convoy
+    //
+    // Then add to local.properties:
+    //   convoy.storeFile=D:/keys/convoy-release.jks
+    //   convoy.storePassword=...
+    //   convoy.keyAlias=convoy
+    //   convoy.keyPassword=...
+    //
+    // KEEP THAT FILE. An app signed with a different key cannot upgrade one
+    // signed with this one — users would have to uninstall and lose their
+    // session to take an update.
+    val storeFilePath = localProps.getProperty("convoy.storeFile")
+    val hasSigning = storeFilePath != null && file(storeFilePath).exists()
+
+    signingConfigs {
+        if (hasSigning) {
+            create("release") {
+                storeFile = file(storeFilePath!!)
+                storePassword = localProps.getProperty("convoy.storePassword")
+                keyAlias = localProps.getProperty("convoy.keyAlias")
+                keyPassword = localProps.getProperty("convoy.keyPassword")
+            }
+        }
+    }
+
     buildTypes {
         debug {
             // Where the app looks for the backend.
@@ -64,12 +97,39 @@ android {
         release {
             buildConfigField("String", "BASE_URL", "\"${releaseBaseUrl}\"")
             buildConfigField("String", "SOCKET_URL", "\"${releaseBaseUrl.trimEnd('/')}\"")
+
+            // R8: strips unreachable code and renames what is left. The dex
+            // in an unminified build of this app is close to 60 MB, most of
+            // it Compose and Play Services that nothing reaches.
+            //
+            // proguard-rules.pro is what makes this safe. Gson populates our
+            // models by reflection, so without explicit keeps R8 removes the
+            // fields and every response deserializes to nulls — a failure
+            // that surfaces nowhere near its cause.
             isMinifyEnabled = true
             isShrinkResources = true
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
             )
+
+            // x86 and x86_64 are emulator architectures. Shipping them costs
+            // about 21 MB of native libraries that no phone can ever load.
+            // Debug keeps them, because that is where the emulator runs.
+            ndk {
+                abiFilters += listOf("arm64-v8a", "armeabi-v7a")
+            }
+
+            // Falls back to unsigned rather than failing the build, so the
+            // project still compiles for anyone without the keystore.
+            if (hasSigning) {
+                signingConfig = signingConfigs.getByName("release")
+            } else {
+                logger.warn(
+                    "convoy: no release keystore in local.properties — " +
+                        "the release APK will be UNSIGNED and cannot be installed."
+                )
+            }
         }
     }
 

@@ -66,6 +66,18 @@ class PrefsManager @Inject constructor(
         get() = prefs.getString(KEY_ACTIVE_VEHICLE, null)
         set(value) = prefs.edit().putString(KEY_ACTIVE_VEHICLE, value).apply()
 
+    /**
+     * Our participant id in the active trip.
+     *
+     * Needed outside any screen: the tracking service decides whether an
+     * incoming chat message deserves a notification, and the only way to
+     * know it is not our own message echoing back is to compare sender ids.
+     * A name comparison would misfire the moment two friends share one.
+     */
+    var activeParticipantId: String?
+        get() = prefs.getString(KEY_ACTIVE_PARTICIPANT, null)
+        set(value) = prefs.edit().putString(KEY_ACTIVE_PARTICIPANT, value).apply()
+
     var themeMode: ThemeMode
         get() = runCatching {
             ThemeMode.valueOf(prefs.getString(KEY_THEME, ThemeMode.AUTO.name)!!)
@@ -86,6 +98,7 @@ class PrefsManager @Inject constructor(
             .remove(KEY_USERNAME)
             .remove(KEY_ACTIVE_TRIP)
             .remove(KEY_ACTIVE_VEHICLE)
+            .remove(KEY_ACTIVE_PARTICIPANT)
             .apply()
     }
 
@@ -98,6 +111,7 @@ class PrefsManager @Inject constructor(
         const val KEY_USERNAME = "username"
         const val KEY_ACTIVE_TRIP = "active_trip_id"
         const val KEY_ACTIVE_VEHICLE = "active_vehicle_id"
+        const val KEY_ACTIVE_PARTICIPANT = "active_participant_id"
         const val KEY_THEME = "theme_mode"
         const val KEY_KEEP_SCREEN_ON = "keep_screen_on"
     }

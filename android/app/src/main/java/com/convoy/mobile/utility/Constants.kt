@@ -80,7 +80,13 @@ object Constants {
     const val CHANNEL_TRACKING = "convoy_tracking"
     const val CHANNEL_ALERTS = "convoy_alerts"
     const val CHANNEL_CRITICAL = "convoy_critical"
+    const val CHANNEL_MESSAGES = "convoy_messages"
+
     const val NOTIFICATION_ID_TRACKING = 1001
+    /** One id, so a burst of chat collapses into a single running notice. */
+    const val NOTIFICATION_ID_MESSAGES = 1002
+    /** Alerts get an id per alert, offset from these so they never collide. */
+    const val NOTIFICATION_ID_ALERT_BASE = 2000
 
     // ── Service actions ─────────────────────────────────────────
     const val ACTION_START_TRACKING = "com.convoy.mobile.START_TRACKING"

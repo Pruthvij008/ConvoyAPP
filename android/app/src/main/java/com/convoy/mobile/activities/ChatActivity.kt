@@ -58,8 +58,10 @@ import com.convoy.mobile.customControls.safeTop
 import com.convoy.mobile.customControls.safeBottom
 import com.convoy.mobile.ui.theme.ConvoyTheme
 import com.convoy.mobile.utility.Constants
+import com.convoy.mobile.utility.Notifier
 import com.convoy.mobile.viewModels.ChatViewModel
 import dagger.hilt.android.AndroidEntryPoint
+import javax.inject.Inject
 
 /**
  * Trip chat.
@@ -70,6 +72,8 @@ import dagger.hilt.android.AndroidEntryPoint
  */
 @AndroidEntryPoint
 class ChatActivity : BaseActivity() {
+
+    @Inject lateinit var notifier: Notifier
 
     private val viewModel: ChatViewModel by viewModels()
 
@@ -119,6 +123,17 @@ class ChatActivity : BaseActivity() {
         // Senders want to know a "pull over" landed, so receipts are sent
         // as soon as the screen is actually being looked at.
         viewModel.markAllRead()
+
+        // While this screen is up there is nothing to notify about, and the
+        // backlog is by definition read.
+        val tripId = intent.getStringExtra(Constants.EXTRA_TRIP_ID)
+        notifier.chatVisibleForTrip = tripId
+        notifier.clearMessages()
+    }
+
+    override fun onPause() {
+        super.onPause()
+        notifier.chatVisibleForTrip = null
     }
 }
 

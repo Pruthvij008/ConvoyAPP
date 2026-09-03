@@ -181,6 +181,7 @@ class MainActivity : BaseActivity() {
         LocationTrackingService.stop(this)
         prefs.activeTripId = null
         prefs.activeVehicleId = null
+        prefs.activeParticipantId = null
         intent.removeExtra(Constants.EXTRA_TRIP_ID)
     }
 }
