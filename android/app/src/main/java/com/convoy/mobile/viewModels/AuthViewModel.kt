@@ -20,8 +20,19 @@ class AuthViewModel @Inject constructor(
     private val prefs: PrefsManager,
 ) : ViewModel() {
 
-    /** One screen, two modes, so nobody hunts for a separate signup page. */
-    var isRegisterMode by mutableStateOf(false)
+    /**
+     * One screen, two modes, so nobody hunts for a separate signup page.
+     *
+     * Starts on REGISTER for anyone who has never signed in on this device,
+     * and on sign-in only for someone returning. Defaulting to sign-in meant
+     * a first-time user was greeted with "Welcome back" — which, next to a
+     * pre-filled-looking username field, read as though the app had arrived
+     * with somebody else's account already in it.
+     *
+     * `username` rather than the token: the token is cleared on sign-out,
+     * but someone who has signed in before still wants the sign-in form.
+     */
+    var isRegisterMode by mutableStateOf(prefs.username.isNullOrBlank())
         private set
 
     var username by mutableStateOf("")

@@ -123,7 +123,14 @@ private fun LoginScreen(viewModel: AuthViewModel, onDone: () -> Unit) {
             AuthField(
                 value = viewModel.username,
                 onValueChange = viewModel::onUsernameChanged,
-                placeholder = "pruthvij",
+                // A neutral example, NOT a real name.
+                //
+                // This used to be the developer's own username. Combined
+                // with the "Welcome back" heading below, a friend opening
+                // a shared build for the FIRST time was greeted by name
+                // and reasonably concluded the app had shipped with
+                // somebody else already signed in.
+                placeholder = "yourname",
                 keyboardOptions = KeyboardOptions(
                     capitalization = KeyboardCapitalization.None,
                     imeAction = ImeAction.Next,
@@ -139,7 +146,7 @@ private fun LoginScreen(viewModel: AuthViewModel, onDone: () -> Unit) {
                 AuthField(
                     value = viewModel.displayName,
                     onValueChange = viewModel::onDisplayNameChanged,
-                    placeholder = "Pruthvij",
+                    placeholder = "Your name",
                     keyboardOptions = KeyboardOptions(
                         capitalization = KeyboardCapitalization.Words,
                         imeAction = ImeAction.Next,
